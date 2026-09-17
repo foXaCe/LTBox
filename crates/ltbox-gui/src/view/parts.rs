@@ -6,11 +6,89 @@ use iced::widget::{self, Space, column, container, row, scrollable, text};
 use iced::{Element, Length, Theme};
 use ltbox_core::tr_args;
 
+// Shared review layout: identity first, then the full-width source path.
+// Spacing and grouping follow LTBox's desktop adaptation of M3 lists.
+fn flash_review_entry<'a>(title: &str, detail: &str, path: Option<&str>) -> Element<'a, Message> {
+    let mut content = column![
+        text(title.to_owned())
+            .size(theme::text_size::BODY_MEDIUM)
+            .font(theme::emphasis::medium())
+            .wrapping(widget::text::Wrapping::WordOrGlyph),
+        text(detail.to_owned()).size(theme::text_size::BODY_SMALL),
+    ]
+    .spacing(4)
+    .width(Length::Fill);
+    if let Some(path) = path {
+        content = content.push(view::components::compact_review_path(path));
+    }
+    container(content)
+        .padding([12, 0])
+        .width(Length::Fill)
+        .into()
+}
+
+fn flash_review_group<'a>(
+    title: &str,
+    entries: Vec<Element<'a, Message>>,
+    erase: bool,
+) -> Element<'a, Message> {
+    let mut content = column![
+        text(format!("{title} ({})", entries.len()))
+            .size(theme::text_size::BODY_MEDIUM)
+            .font(theme::emphasis::medium())
+    ]
+    .spacing(4)
+    .width(Length::Fill);
+    for (index, entry) in entries.into_iter().enumerate() {
+        if index > 0 {
+            content = content.push(widget::rule::horizontal(1).style(move |t: &Theme| {
+                widget::rule::Style {
+                    color: if erase {
+                        pal_of(t).on_error_container.scale_alpha(0.2)
+                    } else {
+                        pal_of(t).outline_variant
+                    },
+                    radius: 0.0.into(),
+                    fill_mode: widget::rule::FillMode::Full,
+                    snap: true,
+                }
+            }));
+        }
+        content = content.push(entry);
+    }
+    container(content)
+        .padding(16)
+        .width(Length::Fill)
+        .style(move |t: &Theme| {
+            let p = pal_of(t);
+            container::Style {
+                background: Some(
+                    if erase {
+                        p.error_container
+                    } else {
+                        p.surface_container_low
+                    }
+                    .into(),
+                ),
+                text_color: Some(if erase {
+                    p.on_error_container
+                } else {
+                    p.on_surface
+                }),
+                border: iced::Border {
+                    radius: theme::shape::SM.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+        })
+        .into()
+}
+
 const FLASH_PARTS_LUN_COLUMN_WIDTH: f32 = 44.0;
 const FLASH_PARTS_LABEL_COLUMN_WIDTH: f32 = 104.0;
 const FLASH_PARTS_START_COLUMN_WIDTH: f32 = 116.0;
 const FLASH_PARTS_SIZE_COLUMN_WIDTH: f32 = 96.0;
-const FLASH_PARTS_STATE_COLUMN_WIDTH: f32 = 72.0;
 const FLASH_PARTS_FILE_ACTION_SIZE: f32 = 28.0;
 const FLASH_PARTS_ROW_HEIGHT: f32 = 40.0;
 
@@ -383,10 +461,6 @@ impl App {
                 Length::Fill,
                 mk_msg(PartsSortColumn::File),
             ),
-            text(self.t("flash_parts_col_state").to_string())
-                .size(11.0)
-                .width(Length::Fixed(FLASH_PARTS_STATE_COLUMN_WIDTH))
-                .style(muted_style),
         ]
         .spacing(8.0)
         .padding([6.0, 10.0])
@@ -429,8 +503,8 @@ impl App {
                 .into(),
             };
 
-            let file_cell: Element<'_, Message> = match r.state {
-                FlashRowState::Skip => row![
+            let file_cell: Element<'_, Message> = match (r.state, r.file_path.as_ref()) {
+                (FlashRowState::Skip, _) | (FlashRowState::Write, None) => row![
                     partition_file_button(
                         icon::fab_open_folder(),
                         Some(Message::FlashParts(FlashPartsMsg::FlashPartsPickRowFile(
@@ -443,17 +517,11 @@ impl App {
                 .spacing(8)
                 .align_y(iced::Alignment::Center)
                 .into(),
-                FlashRowState::Write => {
-                    let file_disp = r
-                        .file_path
-                        .as_ref()
-                        .map(|p| {
-                            std::path::Path::new(p)
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_else(|| p.clone())
-                        })
-                        .unwrap_or_default();
+                (FlashRowState::Write, Some(path)) => {
+                    let file_disp = std::path::Path::new(path)
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_else(|| path.clone());
                     row![
                         partition_file_button(
                             icon::fab_cancel(),
@@ -462,18 +530,16 @@ impl App {
                             ),)),
                             true,
                         ),
-                        text(file_disp)
-                            .size(12.0)
-                            .width(Length::Fill)
-                            .wrapping(iced::widget::text::Wrapping::None),
+                        container(view::components::compact_review_path(&file_disp))
+                            .width(Length::Fill),
                     ]
                     .spacing(8)
                     .align_y(iced::Alignment::Center)
                     .into()
                 }
-                FlashRowState::Erase => row![
+                (FlashRowState::Erase, _) => row![
                     partition_file_button(icon::fab_open_folder(), None, false),
-                    text("—").size(12.0),
+                    text(self.t("flash_parts_state_erase").to_string()).size(12.0),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center)
@@ -498,13 +564,6 @@ impl App {
                     .width(Length::Fixed(FLASH_PARTS_SIZE_COLUMN_WIDTH))
                     .align_x(iced::alignment::Horizontal::Right),
                 container(file_cell).width(Length::Fill),
-                text(match r.state {
-                    FlashRowState::Skip => "—",
-                    FlashRowState::Write => self.t("flash_parts_state_write"),
-                    FlashRowState::Erase => self.t("flash_parts_state_erase"),
-                })
-                .size(12.0)
-                .width(Length::Fixed(FLASH_PARTS_STATE_COLUMN_WIDTH)),
             ]
             .spacing(8.0)
             .padding([0.0, 10.0])
@@ -581,93 +640,35 @@ impl App {
 
     pub(crate) fn flash_parts_confirm_step(&self) -> Element<'_, Message> {
         let rows = self.flash_parts.active_rows();
-        let erase_rows: Vec<&FlashPartRow> = rows
-            .iter()
-            .filter(|r| r.state == FlashRowState::Erase)
-            .collect();
-        let flash_rows: Vec<&FlashPartRow> = rows
-            .iter()
-            .filter(|r| r.state == FlashRowState::Write)
-            .collect();
-
-        let mut leading: Vec<Element<'_, Message>> = Vec::new();
-
-        // ERASE block first, error-toned and loud.
-        if !erase_rows.is_empty() {
-            let mut erase_col = column![
-                text(self.t("flash_parts_confirm_erase_warn").to_string())
-                    .size(14.0)
-                    .style(|t: &Theme| iced::widget::text::Style {
-                        color: Some(pal_of(t).error),
-                    })
-            ]
-            .spacing(4.0);
-            for r in &erase_rows {
-                erase_col = erase_col.push(
-                    text(format!(
-                        "⛔ {} (LUN {}, {})",
-                        r.label,
-                        r.lun,
-                        format_bytes_auto(r.size_bytes)
-                    ))
-                    .size(theme::text_size::BODY_MEDIUM)
-                    .style(|t: &Theme| iced::widget::text::Style {
-                        color: Some(pal_of(t).error),
-                    }),
-                );
-            }
-            leading.push(
-                container(erase_col)
-                    .padding(14.0)
-                    .width(Length::Fill)
-                    .style(move |t: &Theme| container::Style {
-                        background: Some(iced::Background::Color(pal_of(t).error_container)),
-                        border: iced::Border {
-                            color: pal_of(t).error,
-                            width: 1.0,
-                            radius: theme::shape::SM.into(),
+        let mut groups = Vec::new();
+        for (state, key) in [
+            (FlashRowState::Erase, "flash_parts_confirm_erase_warn"),
+            (FlashRowState::Write, "flash_parts_confirm_flash_hdr"),
+        ] {
+            let entries: Vec<_> = rows
+                .iter()
+                .filter(|r| r.state == state)
+                .map(|r| {
+                    flash_review_entry(
+                        &r.label,
+                        &format!("LUN {} · {}", r.lun, format_bytes_auto(r.size_bytes)),
+                        if state == FlashRowState::Write {
+                            r.file_path.as_deref()
+                        } else {
+                            None
                         },
-                        text_color: Some(pal_of(t).on_error_container),
-                        ..Default::default()
-                    })
-                    .into(),
-            );
-        }
-
-        // FLASH block.
-        if !flash_rows.is_empty() {
-            let mut flash_col = column![
-                text(self.t("flash_parts_confirm_flash_hdr").to_string())
-                    .size(14.0)
-                    .style(on_surface_style)
-            ]
-            .spacing(4.0);
-            for r in &flash_rows {
-                let fname = r
-                    .file_path
-                    .as_ref()
-                    .map(|p| {
-                        std::path::Path::new(p)
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_else(|| p.clone())
-                    })
-                    .unwrap_or_default();
-                flash_col = flash_col.push(
-                    text(format!("• {} (LUN {}) ← {}", r.label, r.lun, fname))
-                        .size(12.0)
-                        .style(muted_style),
-                );
+                    )
+                })
+                .collect();
+            if !entries.is_empty() {
+                groups.push(flash_review_group(
+                    self.t(key),
+                    entries,
+                    state == FlashRowState::Erase,
+                ));
             }
-            leading.push(
-                container(flash_col)
-                    .padding(14.0)
-                    .width(Length::Fill)
-                    .into(),
-            );
         }
-
-        self.confirm_step_frame(leading, vec![], vec![])
+        self.confirm_step_frame(groups, vec![], vec![])
     }
 
     pub(crate) fn view_dump_parts_wizard(&self) -> Element<'_, Message> {

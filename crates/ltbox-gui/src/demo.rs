@@ -9,6 +9,15 @@
 //! `view:about`, plus the
 //! static inspection scenes enumerated in [`VALID_SCENES`], including the
 //! Advanced partition-table scenes `view:flash-parts` and `view:dump-parts`.
+//! `view:flash-parts-confirm` reuses the flash table fixture at the review step:
+//! two writes with long source paths and one erase, without device access.
+//!
+//! PowerShell preview (close the previous demo before rebuilding):
+//! ```text
+//! $env:LTBOX_DEMO = "view:flash-parts-confirm"
+//! cargo run -p ltbox-gui --bin ltbox --features demo --locked
+//! Remove-Item Env:LTBOX_DEMO
+//! ```
 
 use crate::*;
 
@@ -61,6 +70,7 @@ pub(crate) const VALID_SCENES: &[&str] = &[
     "view:sysupdate-rescue-region",
     "view:sysupdate-rescue-confirm",
     "view:flash-parts",
+    "view:flash-parts-confirm",
     "view:dump-parts",
 ];
 
@@ -84,6 +94,7 @@ pub(crate) enum Scene {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PartitionTableScene {
     Flash,
+    FlashConfirm,
     Dump,
 }
 
@@ -158,6 +169,9 @@ impl Scene {
             }
             "view:sysupdate-rescue-confirm" => {
                 Some(Self::SysUpdateRescue(SysUpdateRescueScene::Confirm))
+            }
+            "view:flash-parts-confirm" => {
+                Some(Self::PartitionTable(PartitionTableScene::FlashConfirm))
             }
             "view:flash-parts" => Some(Self::PartitionTable(PartitionTableScene::Flash)),
             "view:dump-parts" => Some(Self::PartitionTable(PartitionTableScene::Dump)),
@@ -543,10 +557,14 @@ const SECTOR: u64 = 4096;
 fn apply_partition_table_scene(app: &mut App, table: PartitionTableScene) {
     app.current_view = View::Advanced;
     match table {
-        PartitionTableScene::Flash => {
+        PartitionTableScene::Flash | PartitionTableScene::FlashConfirm => {
             app.advanced_wizard_open = AdvancedWizardOpen::FlashParts;
             app.flash_parts = FlashPartsWizard {
-                step: 1,
+                step: if table == PartitionTableScene::FlashConfirm {
+                    2
+                } else {
+                    1
+                },
                 loader_path: Some(LOADER_PATH.to_string()),
                 entry_connection: Some(ConnectionStatus::Edl),
                 rows: DEMO_PARTITIONS
@@ -966,6 +984,59 @@ mod tests {
                 _ => unreachable!("unexpected scene {value}"),
             }
         }
+    }
+
+    #[test]
+    fn partition_review_scene_reuses_table_targets_without_starting_work() {
+        let scene = Scene::parse("view:flash-parts-confirm").unwrap();
+        assert_eq!(
+            scene,
+            Scene::PartitionTable(PartitionTableScene::FlashConfirm)
+        );
+        let mut app = App {
+            demo_scene: Some(scene),
+            ..App::default()
+        };
+        apply_partition_table_scene(&mut app, PartitionTableScene::FlashConfirm);
+        assert_eq!(app.current_view, View::Advanced);
+        assert_eq!(app.advanced_wizard_open, AdvancedWizardOpen::FlashParts);
+        assert_eq!(app.flash_parts.step, 2);
+        let targets = app.flash_parts.active_rows();
+        assert_eq!(
+            targets
+                .iter()
+                .filter(|r| r.state == FlashRowState::Erase)
+                .count(),
+            1
+        );
+        let writes: Vec<_> = targets
+            .iter()
+            .filter(|r| r.state == FlashRowState::Write)
+            .collect();
+        assert_eq!(writes.len(), 2);
+        assert!(writes.iter().all(|r| {
+            r.file_path
+                .as_ref()
+                .is_some_and(|p| p.starts_with(FIRMWARE_FOLDER))
+        }));
+        assert!(!app.operation.is_running());
+        assert!(blocks_device_action(
+            &app,
+            &Message::FlashParts(FlashPartsMsg::FlashPartsNext)
+        ));
+        let expected: Vec<_> = targets
+            .iter()
+            .map(|r| (r.lun, r.label.clone(), r.state, r.file_path.clone()))
+            .collect();
+        apply_partition_table_scene(&mut app, PartitionTableScene::Flash);
+        assert_eq!(app.flash_parts.step, 1);
+        let actual: Vec<_> = app
+            .flash_parts
+            .active_rows()
+            .iter()
+            .map(|r| (r.lun, r.label.clone(), r.state, r.file_path.clone()))
+            .collect();
+        assert_eq!(actual, expected);
     }
 
     #[test]

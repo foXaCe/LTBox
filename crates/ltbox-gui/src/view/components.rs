@@ -690,6 +690,10 @@ pub(crate) fn confirm_definition_row<'a>(label: &str, value: &str) -> Element<'a
 
 /// Measure against the value column, not the window, and retain the full path in a tooltip.
 pub(crate) fn confirm_path_row<'a>(label: &str, value: &str) -> Element<'a, Message> {
+    confirm_definition_content(label, compact_review_path(value))
+}
+
+pub(crate) fn compact_review_path<'a>(value: &str) -> Element<'a, Message> {
     let path = value.to_string();
     let full_path = path.clone();
     let value = widget::responsive(move |size| {
@@ -704,22 +708,19 @@ pub(crate) fn confirm_path_row<'a>(label: &str, value: &str) -> Element<'a, Mess
         .clip(true)
         .into()
     });
-    confirm_definition_content(
-        label,
-        widget::tooltip(
-            container(value).width(Length::Fill).height(20),
-            container(
-                text(full_path)
-                    .size(theme::text_size::BODY_SMALL)
-                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-            )
-            .padding([8, 12])
-            .max_width(480)
-            .style(|t| theme::tooltip_style(t, theme::shape::SM)),
-            widget::tooltip::Position::Top,
+    widget::tooltip(
+        container(value).width(Length::Fill).height(20),
+        container(
+            text(full_path)
+                .size(theme::text_size::BODY_SMALL)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
         )
-        .into(),
+        .padding([8, 12])
+        .max_width(480)
+        .style(|t| theme::tooltip_style(t, theme::shape::SM)),
+        widget::tooltip::Position::Top,
     )
+    .into()
 }
 
 pub(crate) fn confirm_definition_content<'a>(
