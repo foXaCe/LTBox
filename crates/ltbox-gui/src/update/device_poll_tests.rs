@@ -261,3 +261,59 @@ fn disconnect_invalidates_partition_selection() {
     assert_eq!(app.flash_parts.step, 0);
     assert_eq!(app.dump_parts.step, 0);
 }
+
+#[test]
+fn advanced_results_survive_device_changes_until_start_over() {
+    use crate::{AdvancedWizardOpen, View};
+    for wizard in [
+        AdvancedWizardOpen::FlashParts,
+        AdvancedWizardOpen::DumpParts,
+        AdvancedWizardOpen::DumpPhys,
+        AdvancedWizardOpen::FlashPhys,
+        AdvancedWizardOpen::SimpleFlash,
+    ] {
+        for success in [true, false] {
+            let mut app = App::default();
+            app.apply_device_snapshot(full_poll("A", ConnectionStatus::Edl));
+            app.current_view = View::Advanced;
+            app.advanced_wizard_open = wizard;
+            app.flash_parts.step = 3;
+            app.dump_parts.step = 2;
+            app.dump_phys.step = 2;
+            app.flash_phys.step = 3;
+            app.simple_flash.step = 2;
+            if success {
+                app.end_op();
+            } else {
+                app.fail_op();
+            }
+            app.apply_device_snapshot(DevicePollResult::default());
+            app.apply_device_snapshot(full_poll("B", ConnectionStatus::Fastboot));
+            assert_eq!(app.advanced_wizard_open, wizard);
+            assert_eq!(app.flash_parts.step, 3);
+            assert_eq!(app.dump_parts.step, 2);
+            assert_eq!(app.dump_phys.step, 2);
+            assert_eq!(app.flash_phys.step, 3);
+            assert_eq!(app.simple_flash.step, 2);
+            let _ = app.update(Message::StartOver);
+            assert_eq!(app.current_view, View::Advanced);
+            assert_eq!(app.advanced_wizard_open, AdvancedWizardOpen::None);
+            assert_eq!(app.flash_parts.step, 0);
+            assert_eq!(app.dump_parts.step, 0);
+            assert_eq!(app.dump_phys.step, 0);
+            assert_eq!(app.flash_phys.step, 0);
+            assert_eq!(app.simple_flash.step, 0);
+        }
+    }
+}
+
+#[test]
+fn device_change_still_invalidates_partition_scans_before_execution() {
+    let mut app = App::default();
+    app.apply_device_snapshot(full_poll("A", ConnectionStatus::Edl));
+    app.flash_parts.step = 2;
+    app.dump_parts.step = 1;
+    app.apply_device_snapshot(full_poll("B", ConnectionStatus::Fastboot));
+    assert_eq!(app.flash_parts.step, 0);
+    assert_eq!(app.dump_parts.step, 0);
+}

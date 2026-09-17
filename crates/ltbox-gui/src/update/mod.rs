@@ -46,8 +46,14 @@ impl App {
             && (change.reset_identity
                 || (change.context_changed && self.device.connection != ConnectionStatus::Edl))
         {
-            self.flash_parts.reset();
-            self.dump_parts.reset();
+            // Preserve execution/results across the worker's reboot or disconnect.
+            // Only pre-execution scans belong to the previous device context.
+            if self.flash_parts.step < 3 {
+                self.flash_parts.reset();
+            }
+            if self.dump_parts.step < 2 {
+                self.dump_parts.reset();
+            }
         }
         if change.left_fastboot
             || (self.device.connection != ConnectionStatus::Fastboot
