@@ -708,8 +708,8 @@ impl App {
             };
         let icon_size = self.wizard_list_icon(WIZARD_LIST_GLYPH_ICON_SIZE);
         let metrics = self.wizard_list_metrics(WIZARD_LIST_LABEL_SIZE, WIZARD_LIST_DESC_SIZE);
-        let tb323fu = !ltbox_core::model::capabilities(&self.device.model).gki_root;
-        let unsupported_canoe = tr_args!("model_unsupported", model = self.device.model.as_str());
+        let gki_unsupported = !ltbox_core::model::capabilities(&self.device.model).gki_root;
+        let unsupported_model = tr_args!("model_unsupported", model = self.device.model.as_str());
         let lkm_card = wizard_list_option_card_recommended(
             RootMode::Lkm.icon(icon_size),
             self.t(RootMode::Lkm.label_key()),
@@ -722,14 +722,11 @@ impl App {
                 self.t("root_recommended_tip"),
             ),
         );
-        // TODO(root): LTBox currently only swaps the boot.img Image for
-        // GKI, which corrupts boot on TB323FU. Keep GKI disabled until
-        // vbmeta handling is added.
-        let gki_card: Element<'_, Message> = if tb323fu {
+        let gki_card: Element<'_, Message> = if gki_unsupported {
             wizard_list_option_card(
                 RootMode::Gki.icon_disabled(icon_size),
                 self.t(RootMode::Gki.label_key()),
-                &unsupported_canoe,
+                &unsupported_model,
                 false,
                 None,
                 metrics,

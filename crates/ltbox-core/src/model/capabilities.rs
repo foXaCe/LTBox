@@ -100,7 +100,6 @@ const TB322FC: ModelCapabilities = ModelCapabilities {
     ..GENERIC
 };
 const TB323FU: ModelCapabilities = ModelCapabilities {
-    gki_root: false,
     rescue: false,
     root_uses_gbl: true,
     requires_sahara_manifest: true,
@@ -112,7 +111,6 @@ const TB323FU: ModelCapabilities = ModelCapabilities {
 /// TB324ZC — Y700 5G. Shares TB323FU's efisp/GBL route, multi-image Sahara
 /// manifest and dual USB-C ports, but ships PRC-only firmware.
 const TB324ZC: ModelCapabilities = ModelCapabilities {
-    gki_root: false,
     rescue: false,
     root_uses_gbl: true,
     requires_sahara_manifest: true,
@@ -190,7 +188,7 @@ mod tests {
         assert!(tb324zc.requires_sahara_manifest);
         assert_eq!(tb324zc.rollback, RollbackPolicy::Gbl);
         assert!(tb324zc.rollback.is_protected());
-        assert!(!tb324zc.gki_root);
+        assert!(tb324zc.gki_root);
         assert!(!tb324zc.rescue);
         assert!(!tb324zc.region_avb_conversion);
 
@@ -232,7 +230,7 @@ mod tests {
         let gbl = capabilities("TB323FU");
         assert!(gbl.root && gbl.unroot && gbl.konabess && gbl.dual_usb);
         assert!(gbl.root_uses_gbl && gbl.requires_sahara_manifest);
-        assert!(!gbl.gki_root && !gbl.rescue && !gbl.region_avb_conversion);
+        assert!(gbl.gki_root && !gbl.rescue && !gbl.region_avb_conversion);
         assert_eq!(gbl.rollback, RollbackPolicy::Gbl);
         for model in ["TB320FC", LAVIE_TAB_9QHD1_MODEL] {
             let profile = capabilities(model);

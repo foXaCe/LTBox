@@ -527,13 +527,13 @@ pub struct PatchedArtifacts {
 /// images into `cfg.work_dir` (GUI reuses the EDL session for flash).
 pub fn build_patched_artifacts(
     cfg: &RootPipelineConfig,
-    skip_avb: bool,
+    uses_gbl: bool,
     log: &mut Vec<String>,
 ) -> Result<PatchedArtifacts> {
     fs::create_dir_all(&cfg.work_dir)?;
     fs::create_dir_all(&cfg.output_dir)?;
 
-    if skip_avb {
+    if uses_gbl {
         use crate::efisp_load::{EfispLoad, detect};
         let abl = fs::read(cfg.work_dir.join("abl.img"))
             .map_err(|_| LtboxError::Patch(tr("err_abl_efisp_undetermined")))?;
@@ -557,7 +557,7 @@ pub fn build_patched_artifacts(
     // vbmeta is dumped only when it actually takes part: TB323FU GBL root
     // flashes the repacked boot as-is, and a chained target is verified by its
     // own footer. Both leave vbmeta out of the workspace.
-    let rebuild_vbmeta = !skip_avb && cfg.rebuild_vbmeta;
+    let rebuild_vbmeta = !uses_gbl && cfg.rebuild_vbmeta;
     if rebuild_vbmeta && !vbmeta_src.exists() {
         return Err(LtboxError::Patch(
             "work_dir is missing the stock vbmeta.img dump".into(),
@@ -667,36 +667,32 @@ pub fn build_patched_artifacts(
     }
     let suffix = cfg.slot_suffix.clone();
 
-    let (patched_vbmeta, vbmeta_partition) = if skip_avb {
-        // The preserved active-slot ABL positively loads efisp. The caller
-        // must also establish or provision the compatible GBL on efisp. Flash the
-        // repacked image as-is — no hash footer re-signing, no vbmeta rebuild,
-        // no vbmeta flash (the caller skips the vbmeta dump too). Magiskboot
-        // may retain the original embedded VBMeta/footer; this branch does
-        // not erase it or refresh its signature after replacing the kernel.
-        ltbox_core::live!(log, "[AVB] {}", tr("log_root_skip_avb_canoe"));
-        (None, None)
+    // GBL preserves signed stock metadata, including the key pinned by vbmeta.
+    // Unsigned GBL and non-GBL images use the existing footer rebuild policy.
+    let stock_info = avb::extract_image_avb_info(&stock_root_image_src)?;
+    if stock_info.partition_name.as_deref() != Some(cfg.root_image_target.partition_base()) {
+        return Err(LtboxError::Avb(format!(
+            "stock {} AVB descriptor targets {:?}, expected {}",
+            stock_filename,
+            stock_info.partition_name,
+            cfg.root_image_target.partition_base(),
+        )));
+    }
+    let preserve_stock = uses_gbl
+        && stock_info
+            .public_key_sha1
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty());
+    let root_image_key = if preserve_stock {
+        avb::preserve_stock_vbmeta(&stock_root_image_src, &final_root_image)?;
+        ltbox_core::live!(log, "[AVB] {stock_filename}: preserved stock signed vbmeta");
+        None
     } else {
-        // Re-add AVB hash footer. Algorithm + rollback index copied from stock
-        // to preserve device's rollback state. Signing key via `KEY_MAP` on stock
-        // pubkey.
-        let stock_info = avb::extract_image_avb_info(&stock_root_image_src)?;
-        if stock_info.partition_name.as_deref() != Some(cfg.root_image_target.partition_base()) {
-            return Err(LtboxError::Avb(format!(
-                "stock {} AVB descriptor targets {:?}, expected {}",
-                stock_filename,
-                stock_info.partition_name,
-                cfg.root_image_target.partition_base(),
-            )));
-        }
-        let root_image_key =
-            resolve_signing_key(stock_info.public_key_sha1.as_deref(), stock_filename, log)?;
-        // No separate footer erase: `add_hash_footer` truncates any existing
-        // footer itself, and a repacked image never carries one anyway.
+        let key = resolve_signing_key(stock_info.public_key_sha1.as_deref(), stock_filename, log)?;
         avb::add_hash_footer(
             &final_root_image,
             &stock_info,
-            root_image_key.as_deref(),
+            key.as_deref(),
             Some(stock_info.rollback_index),
         )?;
         ltbox_core::live!(
@@ -706,9 +702,16 @@ pub fn build_patched_artifacts(
             stock_filename,
             stock_info.algorithm,
             stock_info.rollback_index,
-            root_image_key.as_deref().unwrap_or("(unsigned)"),
+            key.as_deref().unwrap_or("(unsigned)")
         );
+        key
+    };
 
+    let (patched_vbmeta, vbmeta_partition) = if uses_gbl {
+        // The ABL/efisp gate above still applies. GBL needs a consistent signed
+        // root image, but its separate vbmeta partition must remain untouched.
+        (None, None)
+    } else {
         // A chained target carries its own signature; that signature is the
         // only thing vbmeta checks. An unsigned stock footer therefore means
         // the chain assumption is wrong for this device, and re-signing would
@@ -806,7 +809,6 @@ pub fn build_patched_artifacts(
 #[cfg(test)]
 mod root_target_tests {
     use super::*;
-
     fn input_config(work: &std::path::Path) -> RootPipelineConfig {
         RootPipelineConfig {
             local_ksu: None,

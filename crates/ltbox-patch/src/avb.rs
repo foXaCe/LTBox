@@ -438,6 +438,52 @@ fn preserve_original_vbmeta_size(output_path: &Path, original_vbmeta_path: &Path
     Ok(())
 }
 
+/// Restore the complete signed stock blob without changing its authenticated
+/// descriptors. GBL tolerates the stale content digest, but requires the stock
+/// key and internally consistent authentication data. Keep the repacked payload
+/// boundary and relocate only the blob; never copy the stock payload size back.
+pub fn preserve_stock_vbmeta(stock: &Path, repacked: &Path) -> Result<()> {
+    use avbtool_rs::parser::{AVB_FOOTER_SIZE, AvbFooter};
+    use std::io::{Read, Seek, SeekFrom, Write};
+    let blob = avbtool_rs::image::load_vbmeta_blob(stock)
+        .map_err(|e| LtboxError::Avb(format!("load stock vbmeta: {e}")))?;
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(repacked)?;
+    let size = file.metadata()?.len();
+    let footer_offset = size
+        .checked_sub(AVB_FOOTER_SIZE)
+        .ok_or_else(|| LtboxError::Avb("Repacked image has no AVB footer".into()))?;
+    file.seek(SeekFrom::Start(footer_offset))?;
+    let mut bytes = vec![0; AVB_FOOTER_SIZE as usize];
+    file.read_exact(&mut bytes)?;
+    let mut footer = AvbFooter::from_reader(bytes.as_slice())
+        .map_err(|e| LtboxError::Avb(format!("read repacked footer: {e}")))?;
+    let end = footer.vbmeta_offset.checked_add(blob.len() as u64);
+    if footer.original_image_size > footer.vbmeta_offset
+        || footer
+            .vbmeta_offset
+            .checked_add(footer.vbmeta_size)
+            .is_none_or(|end| end > footer_offset)
+        || end.is_none_or(|end| end > footer_offset)
+    {
+        return Err(LtboxError::Avb(
+            "Stock vbmeta does not fit the repacked image footer layout".into(),
+        ));
+    }
+    footer.vbmeta_size = blob.len() as u64;
+    // All bounds are checked before modifying the output. Truncate old metadata
+    // and zero-fill padding so a larger repacked blob cannot leave stale bytes.
+    file.set_len(footer.vbmeta_offset)?;
+    file.seek(SeekFrom::Start(footer.vbmeta_offset))?;
+    file.write_all(&blob)?;
+    file.set_len(size)?;
+    file.seek(SeekFrom::Start(footer_offset))?;
+    file.write_all(&avbtool_rs::image::encode_footer(&footer))?;
+    Ok(())
+}
+
 /// Add hash footer. `key_spec` follows [`resign_image`]; pass `None`
 /// for the NONE-algorithm path (no signing).
 pub fn add_hash_footer(
@@ -568,6 +614,56 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn stock_signed_blob_survives_payload_growth_without_resigning() {
+        for key in ["testkey_rsa2048", "testkey_rsa4096"] {
+            let temp = tempfile::tempdir().unwrap();
+            let stock = temp.path().join("stock.img");
+            let output = temp.path().join("output.img");
+            write_hash_footer_fixture(&stock, "sha256", Vec::new());
+            let mut info = extract_image_avb_info(&stock).unwrap();
+            info.algorithm = algorithm_for_key_spec(key).unwrap();
+            add_hash_footer(&stock, &info, Some(key), None).unwrap();
+            let original = avbtool_rs::image::load_vbmeta_blob(&stock).unwrap();
+            // A larger replacement payload moves the footer boundary. Rebuild
+            // unsigned metadata to also exercise a different vbmeta size.
+            let payload = vec![0x42; 8192];
+            fs::write(&output, &payload).unwrap();
+            info.algorithm = "NONE".into();
+            add_hash_footer(&output, &info, None, None).unwrap();
+            let before = avbtool_rs::image::inspect_avb_image(&output)
+                .unwrap()
+                .footer
+                .unwrap();
+            preserve_stock_vbmeta(&stock, &output).unwrap();
+            assert_eq!(
+                avbtool_rs::image::load_vbmeta_blob(&output).unwrap(),
+                original
+            );
+            assert_eq!(&fs::read(&output).unwrap()[..payload.len()], &payload);
+            let after = avbtool_rs::image::inspect_avb_image(&output)
+                .unwrap()
+                .footer
+                .unwrap();
+            assert_eq!(after.original_image_size, before.original_image_size);
+            assert_eq!(after.vbmeta_offset, before.vbmeta_offset);
+            assert_eq!(after.vbmeta_size, original.len() as u64);
+            assert_eq!(fs::metadata(&output).unwrap().len(), info.partition_size);
+        }
+    }
+
+    #[test]
+    fn stock_blob_restore_rejects_missing_footer_without_modifying_payload() {
+        let temp = tempfile::tempdir().unwrap();
+        let stock = temp.path().join("stock.img");
+        let output = temp.path().join("output.img");
+        write_hash_footer_fixture(&stock, "sha256", Vec::new());
+        let payload = vec![0x42; 8192];
+        fs::write(&output, &payload).unwrap();
+        assert!(preserve_stock_vbmeta(&stock, &output).is_err());
+        assert_eq!(fs::read(&output).unwrap(), payload);
     }
 
     #[test]

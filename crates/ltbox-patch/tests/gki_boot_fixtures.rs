@@ -3,7 +3,8 @@
 //! Set LTBOX_GKI_STOCK_BOOT, LTBOX_GKI_KERNEL_ZIP, LTBOX_GKI_REFERENCE_BOOT,
 //! and LTBOX_GKI_ABL (the matching active-slot ABL that loads efisp).
 //! The reference must be produced independently from the same stock image and
-//! kernel (for example by the official magiskboot using the ZIP's AK3 options).
+//! kernel (official magiskboot using the ZIP's AK3 options, followed by
+//! restoration of the complete signed stock vbmeta blob at the new boundary).
 //! Run: cargo test -p ltbox-patch --test gki_boot_fixtures -- --ignored
 //! Image equality does not establish that the device boots or that its GBL,
 //! init_boot, slot, and other partitions match the reference installation.

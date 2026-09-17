@@ -77,10 +77,7 @@ impl App {
                 if !ltbox_core::model::capabilities(&self.device.model).root {
                     return Task::none();
                 }
-                // TODO(root): Direct GKI installation from stock has a reported
-                // TB323FU boot failure. Offline repack parity alone does not
-                // establish the required GBL/init_boot state; keep this gated
-                // until the device installation path is verified.
+                // Keep unsupported models gated at both selection and execution.
                 if !ltbox_core::model::capabilities(&self.device.model).gki_root
                     && m == RootMode::Gki
                 {
@@ -543,9 +540,7 @@ impl App {
                         Some(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
                     return Task::none();
                 }
-                // Direct GKI installation on TB323FU still needs device
-                // verification. Reject stale selections made before the model
-                // was identified, as well as disabling the mode card.
+                // Reject stale selections made before the model was identified.
                 if !ltbox_core::model::capabilities(&self.device.model).gki_root
                     && self.root.is_gki()
                 {
@@ -859,18 +854,12 @@ mod tests {
             assert_eq!(app.konabess.step, 0);
             assert!(app.error_msg.is_some());
         }
-        let mut app = App::default();
-        app.device.model = "TB323FU".into();
-        let _ = app.update_root(RootMsg::RootMode(RootMode::Gki));
-        assert!(app.root.mode.is_none());
-        app.root.mode = Some(RootMode::Gki);
-        let _ = app.update_root(RootMsg::RootExecStart);
-        assert!(!app.operation.is_running());
-        assert!(app.root.mode.is_none());
-        assert_eq!(
-            app.error_msg,
-            Some(tr_args!("model_unsupported", model = "TB323FU"))
-        );
+        for model in ["TB323FU", "TB324ZC"] {
+            let mut app = App::default();
+            app.device.model = model.into();
+            let _ = app.update_root(RootMsg::RootMode(RootMode::Gki));
+            assert_eq!(app.root.mode, Some(RootMode::Gki));
+        }
     }
 
     fn ksu_lkm_confirm_wizard() -> RootWizard {
