@@ -1062,7 +1062,7 @@
   "root_apk_title": "Выбор APK форка",
   "root_build_title": "Выбор сборки для разработки",
   "root_confirm_title": "Подтверждение",
-  "root_kernel_subtitle": "boot.img или kernel ZIP (AnyKernel3 / Image / бинарник ядра)",
+  "root_kernel_subtitle": "Выберите файл boot.img или ZIP-архив с ядром (например, AnyKernel3).",
   "root_kernel_title": "Выбор ядра — режим GKI",
   "root_kernel_version_invalid": "Введите версию ядра, например 6.1 или 6.1.75.",
   "root_kernel_version_manual_subtitle": "ADB не смог определить версию ядра для KernelSU LKM. Введите major.minor; номер исправления указывать необязательно.",

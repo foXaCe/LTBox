@@ -1062,7 +1062,7 @@
   "root_apk_title": "Select Fork APK",
   "root_build_title": "Select Development Build",
   "root_confirm_title": "Confirm",
-  "root_kernel_subtitle": "Select a boot.img file or a kernel ZIP (AnyKernel3, Image, or a kernel binary).",
+  "root_kernel_subtitle": "Select a boot.img file or a ZIP containing a kernel (such as AnyKernel3).",
   "root_kernel_title": "Select Kernel — GKI Mode",
   "root_kernel_version_invalid": "Enter a kernel version like 6.1 or 6.1.75.",
   "root_kernel_version_manual_subtitle": "ADB could not detect the kernel version for KernelSU LKM. Enter the major.minor version; the patch component is optional.",

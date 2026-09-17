@@ -1,7 +1,7 @@
 //! File/folder picker categories and rfd helpers.
 //!
 //! Folder picker kinds have separate recents; file picks share one bucket
-//! and vary through [`FilePickSpec`].
+//! with a separate history limit per extension, and vary through [`FilePickSpec`].
 
 use iced::Task;
 use rfd::AsyncFileDialog;

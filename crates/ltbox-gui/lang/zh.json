@@ -1062,7 +1062,7 @@
   "root_apk_title": "选择分支 APK",
   "root_build_title": "选择开发构建",
   "root_confirm_title": "确认",
-  "root_kernel_subtitle": "选择 boot.img 文件或内核 ZIP（AnyKernel3、Image 或内核二进制文件）。",
+  "root_kernel_subtitle": "选择 boot.img 文件或包含内核的 ZIP 压缩包（如 AnyKernel3）。",
   "root_kernel_title": "选择内核 — GKI 模式",
   "root_kernel_version_invalid": "请输入类似 6.1 或 6.1.75 的内核版本。",
   "root_kernel_version_manual_subtitle": "ADB 未检测到 KernelSU LKM 的内核版本。请输入 major.minor；补丁版本可选。",

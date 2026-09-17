@@ -155,7 +155,13 @@ fn file_and_folder_recents_survive_reload_without_cross_type_eviction() {
     let mut loaded: PersistedSettings = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     loaded.recent_paths.migrate_legacy();
     assert_eq!(loaded.recent_paths.by_kind, settings.recent_paths.by_kind);
-    for file in ["second.apk", "third.APK", "fourth.apk"] {
+    for file in [
+        "second.apk",
+        "third.APK",
+        "fourth.apk",
+        "fifth.apk",
+        "sixth.apk",
+    ] {
         loaded.recent_paths.push("file", file);
     }
     let files = loaded.recent_paths.recent("file");
@@ -166,7 +172,7 @@ fn file_and_folder_recents_survive_reload_without_cross_type_eviction() {
             .iter()
             .filter(|p| p.to_lowercase().ends_with(".apk"))
             .count(),
-        3
+        5
     );
 }
 

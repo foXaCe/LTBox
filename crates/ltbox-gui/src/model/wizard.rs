@@ -2262,14 +2262,14 @@ impl AdvWizard {
             | Some(AdvAction::ImageInfo)
             | Some(AdvAction::RebuildVbmeta) => ("Android partition image (*.img)", &["img"]),
             Some(AdvAction::DetectArb) | Some(AdvAction::PatchDevinfo) => {
-                ("EDL loader (.melf / .xml)", LOADER_PICKER_EXTS)
+                ("EDL loader (.melf / .xml / .x)", LOADER_PICKER_EXTS)
             }
             _ => ("", &[]),
         }
     }
 
     /// Recents bucket for the current action. Folder actions bin into
-    /// one of the 4 user-facing folder categories + `OutputFolder` for
+    /// a source-folder category or `OutputFolder` for
     /// dump destinations; file actions share the `File` bucket per the
     /// unified-file-picker design.
     ///

@@ -15,7 +15,7 @@ const APP_DIR: &str = "ltbox";
 const FILE_NAME: &str = "settings.json";
 
 /// Maximum visible recents; stored per folder category or file extension.
-pub const RECENT_MAX: usize = 3;
+pub const RECENT_MAX: usize = 5;
 
 /// Legacy global-files bucket key for migration from pre-category config.
 /// v2 / early-v3 settings only had `files: Vec<String>` + `folders: Vec<String>`;
@@ -36,6 +36,10 @@ pub const LEGACY_FOLDERS_KEY: &str = "legacy.folders";
 pub struct RecentPaths {
     #[serde(default)]
     pub by_kind: BTreeMap<String, Vec<String>>,
+    /// Last user selection, in milliseconds since the Unix epoch. Missing
+    /// timestamps are legacy entries; their stored relative order is retained.
+    #[serde(default)]
+    pub selected_at_ms: BTreeMap<String, u64>,
 
     // ---- Legacy fields kept ONLY for load-migration ----------------------
     // Old config had these as top-level arrays. `#[serde(default)]` lets
@@ -52,15 +56,40 @@ impl RecentPaths {
     /// Push a path onto the MRU list for `kind`. Returns `true` iff the
     /// list changed (useful to skip redundant settings writes).
     pub fn push(&mut self, kind: &str, path: &str) -> bool {
-        if kind.is_empty() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        self.push_at(kind, path, now)
+    }
+
+    fn push_at(&mut self, kind: &str, path: &str, timestamp: u64) -> bool {
+        if kind.is_empty() || path.is_empty() {
             return false;
         }
+        let timestamp_changed =
+            self.selected_at_ms.insert(path.to_owned(), timestamp) != Some(timestamp);
         let list = self.by_kind.entry(kind.to_string()).or_default();
-        if kind == "file" {
+        let changed = if kind == "file" {
             push_file_recent(list, path)
         } else {
             push_front_dedup(list, path)
-        }
+        };
+        self.selected_at_ms
+            .retain(|path, _| self.by_kind.values().any(|paths| paths.contains(path)));
+        changed || timestamp_changed
+    }
+
+    /// Merge the caller's eligible paths by selection time, then limit the
+    /// combined list. Stable sorting preserves legacy order and timestamp ties.
+    pub fn visible<'a>(&self, items: &'a [String]) -> Vec<&'a String> {
+        let mut paths: Vec<_> = items.iter().collect();
+        paths.sort_by_key(|path| {
+            std::cmp::Reverse(self.selected_at_ms.get(*path).copied().unwrap_or(0))
+        });
+        paths.truncate(RECENT_MAX);
+        paths
     }
 
     /// MRU list for `kind`, or empty slice if none.
@@ -71,16 +100,20 @@ impl RecentPaths {
     /// Fold legacy `files` / `folders` arrays into the kind map. Idempotent.
     pub fn migrate_legacy(&mut self) {
         for p in std::mem::take(&mut self.files) {
-            let _ = self.push(LEGACY_FILES_KEY, &p);
+            push_front_dedup(self.by_kind.entry(LEGACY_FILES_KEY.into()).or_default(), &p);
         }
         for p in std::mem::take(&mut self.folders) {
-            let _ = self.push(LEGACY_FOLDERS_KEY, &p);
+            push_front_dedup(
+                self.by_kind.entry(LEGACY_FOLDERS_KEY.into()).or_default(),
+                &p,
+            );
         }
     }
 }
 
-// File pickers filter by extension after loading. Keep three entries per
-// extension so unrelated APK/module picks cannot evict EDL loaders or images.
+// File pickers filter by extension after loading. Keep up to `RECENT_MAX`
+// entries per extension so unrelated APK/module picks cannot evict EDL loaders
+// or images.
 fn push_file_recent(list: &mut Vec<String>, path: &str) -> bool {
     if path.is_empty() {
         return false;
@@ -378,6 +411,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn eligible_recents_merge_by_selection_time_after_reload() {
+        let mut recents = RecentPaths::default();
+        recents.push_at("file", "kernel.zip", 100);
+        recents.push_at("file", "boot.img", 300);
+        recents.push_at("file", "other.ZIP", 200);
+        recents.push_at("file", "init_boot.img", 400);
+        recents.push_at("file", "manager.apk", 500);
+        let mut loaded: RecentPaths =
+            serde_json::from_str(&serde_json::to_string(&recents).unwrap()).unwrap();
+        let eligible = |r: &RecentPaths| {
+            r.recent("file")
+                .iter()
+                .filter(|p| crate::pickers::path_matches_extensions(p, &["img", "zip"]))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            loaded.visible(&eligible(&loaded)),
+            vec!["init_boot.img", "boot.img", "other.ZIP", "kernel.zip"]
+        );
+        loaded.push_at("file", "kernel.zip", 600);
+        assert_eq!(
+            loaded.visible(&eligible(&loaded)),
+            vec!["kernel.zip", "init_boot.img", "boot.img", "other.ZIP"]
+        );
+        // Re-selecting the first entry must still update its persisted time.
+        assert!(loaded.push_at("file", "kernel.zip", 700));
+        assert_eq!(loaded.selected_at_ms["kernel.zip"], 700);
+    }
+
+    #[test]
+    fn timestamp_free_recents_keep_legacy_order_and_folder_limit() {
+        let mut r: RecentPaths = serde_json::from_str(r#"{"by_kind":{"file":["a.zip","b.img","c.zip","d.img"],"output_folder":["new","old"]}}"#).unwrap();
+        r.migrate_legacy();
+        assert!(r.selected_at_ms.is_empty());
+        assert_eq!(
+            r.visible(r.recent("file")),
+            vec!["a.zip", "b.img", "c.zip", "d.img"]
+        );
+        r.push_at("output_folder", "old", 10);
+        assert_eq!(r.visible(r.recent("output_folder")), vec!["old", "new"]);
+    }
+
+    #[test]
     fn default_is_follow_system() {
         let s = PersistedSettings::default();
         assert_eq!(s.language, "en");
@@ -460,13 +537,13 @@ mod tests {
     #[test]
     fn push_dedups_and_truncates() {
         let mut r = RecentPaths::default();
-        for p in ["/a", "/b", "/c", "/d", "/a"] {
+        for p in ["/a", "/b", "/c", "/d", "/e", "/f", "/a"] {
             r.push("k", p);
         }
-        // Trace: [/a] → [/b,/a] → [/c,/b,/a] → [/d,/c,/b] (cap=3 drops
-        // /a) → [/a,/d,/c] (/a re-enters at front as a fresh item).
+        // Trace: [/a] → [/b,/a] → ... → [/f,/e,/d,/c,/b] (cap=5 drops
+        // /a) → [/a,/f,/e,/d,/c] (/a re-enters at front as a fresh item).
         // Dedup only kicks in while the entry is still inside the cap.
-        assert_eq!(r.recent("k"), &["/a", "/d", "/c"]);
+        assert_eq!(r.recent("k"), &["/a", "/f", "/e", "/d", "/c"]);
     }
 
     #[test]

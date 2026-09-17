@@ -3109,8 +3109,8 @@ impl App {
 
     /// Resolve loader input from the unified picker path.
     ///
-    /// Preferred path is a file (`*.melf`, `*.mbn`, `*.elf`) and accepts
-    /// any filename with one of those extensions. A directory is still
+    /// The picker offers `.melf` or a Sahara `.xml`/`.x` manifest according
+    /// to the connected model. A directory is still
     /// accepted for backwards compatibility with older recents entries
     /// and is resolved via [`find_edl_loader`].
     /// Error to surface for a finished Firehose GPT scan: the worker's own

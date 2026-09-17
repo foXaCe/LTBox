@@ -1515,7 +1515,7 @@ impl App {
             return column![].into();
         }
         let mut rows = column![].spacing(0).width(Length::Fill);
-        for (index, path) in items.iter().take(settings_store::RECENT_MAX).enumerate() {
+        for (index, path) in self.recent_paths.visible(items).into_iter().enumerate() {
             if index > 0 {
                 rows = rows.push(iced::widget::rule::horizontal(1).style(|t: &Theme| {
                     iced::widget::rule::Style {
