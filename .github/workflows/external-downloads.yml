@@ -38,7 +38,7 @@ jobs:
       - name: Build and verify the test executable
         run: |
           cargo test -p ltbox-patch --lib --locked --no-run --message-format=json > root-test-build.json
-          python3 ci/stage_root_test.py root-test-build.json root-test/root-contract-tests
+          python3 .github/scripts/stage_root_test.py root-test-build.json root-test/root-contract-tests
       - uses: actions/upload-artifact@v7
         with:
           name: root-contract-tests

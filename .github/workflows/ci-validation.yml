@@ -45,7 +45,7 @@ jobs:
       - name: Validate packaging shell scripts
         run: shellcheck packaging/linux/*.sh misc/macos/make-app.sh
       - name: Test CI helpers
-        run: python3 -m unittest discover -s ci -v
+        run: python3 -m unittest discover -s .github/scripts -v
       - name: Test packaging policies and manifest rendering
         run: python3 -m unittest discover -s packaging -v
 

@@ -1,4 +1,4 @@
-"""Record cache experiment timings while preserving the measured command's status."""
+"""Record cache timings while preserving the measured command's status."""
 
 import argparse
 import json
@@ -29,26 +29,23 @@ def measure(directory: Path, name: str, command: list[str]) -> int:
 def report(directory: Path, target: Path, cache_hit: str) -> None:
     rows = {path.stem: json.loads(path.read_text(encoding="utf-8"))
             for path in directory.glob("*.json")
-            if path.stem in {"dependency-cache-restore", "workspace-tests", "demo-tests"}}
+            if path.stem in {"dependency-cache-restore", "workspace-tests", "demo-tests", "release-build", "clippy", "demo-clippy"}}
     target_bytes = sum(path.stat().st_size for path in target.rglob("*") if path.is_file())
     data = {"commit": os.getenv("GITHUB_SHA"), "run": os.getenv("GITHUB_RUN_ID"),
             "target_cache_exact_hit": cache_hit == "true", "phases": rows,
             "target_bytes_before_cache_pruning": target_bytes}
     record(directory, "summary", **data)
-    stats = subprocess.run(["sccache", "--show-stats", "--stats-format=json"],
-                           capture_output=True, text=True, check=False)
-    (directory / "sccache.json").write_text(stats.stdout, encoding="utf-8")
     summary = os.getenv("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as output:
-            output.write("\n### Windows dependency cache experiment\n\n")
+            output.write("\n### " + os.getenv("CI_CACHE_LABEL", "Dependency cache metrics") + "\n\n")
             output.write(f"Exact cache hit: **{cache_hit == 'true'}**\n\n")
             output.write("| Phase | Seconds |\n|---|---:|\n")
             for name, row in rows.items():
                 output.write(f"| {name} | {row.get('seconds', 'incomplete')} |\n")
             output.write(f"\nTarget before pruning: {target_bytes / 2**30:.2f} GiB. "
                          "This is not the compressed cache size. See post-job cache logs "
-                         "for archive size and save time; sccache statistics are attached.\n")
+                         "for archive size and save time.\n")
 
 
 if __name__ == "__main__":

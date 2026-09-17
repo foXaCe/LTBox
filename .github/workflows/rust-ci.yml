@@ -39,13 +39,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_XWIN_VERSION: "0.22.0"
   NODE_OPTIONS: --no-deprecation
-  RUSTC_WRAPPER: sccache
+  RUSTC_WRAPPER: ""
   RUSTFLAGS: -D warnings
-  SCCACHE_GHA_ENABLED: "true"
-  SCCACHE_GHA_VERSION: ltbox-v1
-  # sccache can't cache incremental builds, so without this the dev-profile
-  # `cargo test` / `cargo clippy` jobs (the ones that run on every PR) compile
-  # uncached. Disable incremental — ephemeral runners never reuse it anyway.
+  # Reuse dependency artifacts; ephemeral runners do not retain incremental state.
   CARGO_INCREMENTAL: "0"
   # cargo-xwin auto-accepts the Microsoft Software License Terms via
   # this env var so the install is non-interactive. Same effect as
@@ -69,6 +65,8 @@ jobs:
     name: fmt + clippy
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      CI_CACHE_LABEL: Windows cross clippy dependency cache
     steps:
       - uses: actions/checkout@v7
 
@@ -111,18 +109,50 @@ jobs:
           path: ~/.cache/cargo-xwin
           key: xwin-${{ runner.os }}-${{ env.CARGO_XWIN_VERSION }}-x86_64-pc-windows-msvc-v2
 
-      - name: Cargo source cache
-        uses: ./.github/actions/cargo-sources
+      - name: Identify cross compiler for dependency cache
+        run: |
+          cross_tools="$( { clang --version; lld-link --version; } | sha256sum | cut -d ' ' -f 1)"
+          echo "CROSS_TOOLCHAIN_KEY=${cross_tools}" >> "${GITHUB_ENV}"
 
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start cache restore timer
+        run: python3 .github/scripts/cache_metrics.py start dependency-cache-restore
+
+      - name: Cross clippy dependency target cache
+        id: clippy-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-cross-clippy-x86_64-v1
+          key: ${{ env.CROSS_TOOLCHAIN_KEY }}
+          cache-targets: true
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Finish cache restore timer
+        run: python3 .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: cargo xwin clippy
         # Check Windows cfg paths against the same sysroot as release builds.
-        run: cargo xwin clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc
+        run: python3 .github/scripts/cache_metrics.py run clippy cargo xwin clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc
 
       - name: cargo xwin clippy (demo)
-        run: cargo xwin clippy -p ltbox-gui --features demo --all-targets --locked --target x86_64-pc-windows-msvc
+        run: python3 .github/scripts/cache_metrics.py run demo-clippy cargo xwin clippy -p ltbox-gui --features demo --all-targets --locked --target x86_64-pc-windows-msvc
+
+      - name: Record cross clippy cache metrics
+        if: always()
+        continue-on-error: true
+        env:
+          TARGET_CACHE_HIT: ${{ steps.clippy-cache.outputs.cache-hit }}
+        run: python3 .github/scripts/cache_metrics.py report target
+
+      - name: Upload cache measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cross-clippy-cache-metrics
+          path: ${{ runner.temp }}/cache-metrics/
+          retention-days: 14
+
 
   cargo-deny:
     name: cargo-deny
@@ -145,13 +175,8 @@ jobs:
             cargo-deny-advisory-db-${{ runner.os }}-
 
       - name: cargo deny --locked check
-        # Advisories (RUSTSEC), license policy, banned crates, and dependency
-        # sources — config in deny.toml at the repo root. This metadata-only
-        # job does not install sccache, so keep it independent of the global
-        # compiler wrapper used by build/test jobs.
-        run: |
-          unset RUSTC_WRAPPER
-          cargo deny --locked check
+        # Advisories, license policy, banned crates, and dependency sources.
+        run: cargo deny --locked check
 
   build-windows:
     needs: release-version
@@ -167,6 +192,8 @@ jobs:
           - name: win_arm64
             target: aarch64-pc-windows-msvc
 
+    env:
+      CI_CACHE_LABEL: Windows cross release dependency cache
     steps:
       - uses: actions/checkout@v7
 
@@ -205,11 +232,27 @@ jobs:
           path: ~/.cache/cargo-xwin
           key: xwin-${{ runner.os }}-${{ env.CARGO_XWIN_VERSION }}-${{ matrix.target }}-v2
 
-      - name: Cargo source cache
-        uses: ./.github/actions/cargo-sources
+      - name: Identify cross compiler for dependency cache
+        run: |
+          cross_tools="$( { clang --version; lld-link --version; } | sha256sum | cut -d ' ' -f 1)"
+          echo "CROSS_TOOLCHAIN_KEY=${cross_tools}" >> "${GITHUB_ENV}"
 
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start cache restore timer
+        run: python3 .github/scripts/cache_metrics.py start dependency-cache-restore
+
+      - name: Windows cross dependency target cache
+        id: windows-cross-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-cross-release-${{ matrix.target }}-v1
+          key: ${{ env.CROSS_TOOLCHAIN_KEY }}
+          cache-targets: true
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Finish cache restore timer
+        run: python3 .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: Resolve release tag or commit
         id: meta
@@ -256,7 +299,7 @@ jobs:
           CC_aarch64_pc_windows_msvc: clang-cl
           CXX_aarch64_pc_windows_msvc: clang-cl
           AR_aarch64_pc_windows_msvc: llvm-lib
-        run: cargo xwin build --release --locked --target ${{ matrix.target }} -p ltbox-gui
+        run: python3 .github/scripts/cache_metrics.py run release-build cargo xwin build --release --locked --target ${{ matrix.target }} -p ltbox-gui
 
       - name: Stage artifact
         id: stage
@@ -282,6 +325,22 @@ jobs:
             ${{ steps.stage.outputs.zip }}.sha256
           if-no-files-found: error
 
+      - name: Record Windows cross cache metrics
+        if: always()
+        continue-on-error: true
+        env:
+          TARGET_CACHE_HIT: ${{ steps.windows-cross-cache.outputs.cache-hit }}
+        run: python3 .github/scripts/cache_metrics.py report target
+
+      - name: Upload cache measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-cross-${{ matrix.name }}-cache-metrics
+          path: ${{ runner.temp }}/cache-metrics/
+          retention-days: 14
+
+
   build-linux:
     needs: release-version
     name: Build linux_${{ matrix.arch }}
@@ -299,6 +358,8 @@ jobs:
             target: aarch64-unknown-linux-gnu
             runner: ubuntu-24.04-arm
 
+    env:
+      CI_CACHE_LABEL: Linux release dependency cache
     steps:
       - uses: actions/checkout@v7
 
@@ -328,13 +389,21 @@ jobs:
           rustup show
           rustup target add ${{ matrix.target }}
 
-      - name: Cargo source cache
-        uses: ./.github/actions/cargo-sources
-        with:
-          save: ${{ github.ref == 'refs/heads/main' && runner.arch == 'X64' }}
+      - name: Start cache restore timer
+        run: python3 .github/scripts/cache_metrics.py start dependency-cache-restore
 
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Linux release dependency target cache
+        id: linux-release-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-release-${{ matrix.target }}-v1
+          cache-targets: true
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Finish cache restore timer
+        run: python3 .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: Resolve release tag or commit
         id: meta
@@ -347,7 +416,7 @@ jobs:
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: cargo build --release
-        run: cargo build --release --locked --target ${{ matrix.target }} -p ltbox-gui
+        run: python3 .github/scripts/cache_metrics.py run release-build cargo build --release --locked --target ${{ matrix.target }} -p ltbox-gui
 
       - name: Test native Linux packages
         run: bash packaging/linux/test_packages.sh target/${{ matrix.target }}/release/ltbox
@@ -388,6 +457,22 @@ jobs:
             ${{ steps.stage.outputs.tarball }}.sha256
           if-no-files-found: error
 
+      - name: Record Linux release cache metrics
+        if: always()
+        continue-on-error: true
+        env:
+          TARGET_CACHE_HIT: ${{ steps.linux-release-cache.outputs.cache-hit }}
+        run: python3 .github/scripts/cache_metrics.py report target
+
+      - name: Upload cache measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-release-${{ matrix.arch }}-cache-metrics
+          path: ${{ runner.temp }}/cache-metrics/
+          retention-days: 14
+
+
   build-macos:
     needs: release-version
     name: Build macos_universal
@@ -403,6 +488,8 @@ jobs:
     # (static glass), so the icon never regresses to the old art.
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      CI_CACHE_LABEL: macOS universal dependency cache
     steps:
       - uses: actions/checkout@v7
 
@@ -414,13 +501,27 @@ jobs:
           rustup show
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
-      - name: Cargo source cache
-        uses: ./.github/actions/cargo-sources
-        with:
-          save: ${{ github.ref == 'refs/heads/main' }}
+      - name: Identify Apple toolchain for dependency cache
+        run: |
+          apple_tools="$( { xcodebuild -version; xcrun --show-sdk-version; xcrun --show-sdk-path; clang --version; } | shasum -a 256 | cut -d ' ' -f 1)"
+          echo "APPLE_TOOLCHAIN_KEY=${apple_tools}" >> "${GITHUB_ENV}"
 
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start cache restore timer
+        run: python3 .github/scripts/cache_metrics.py start dependency-cache-restore
+
+      - name: macOS dependency target cache
+        id: macos-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-universal-release-v1
+          key: ${{ env.APPLE_TOOLCHAIN_KEY }}
+          cache-targets: true
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Finish cache restore timer
+        run: python3 .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: Resolve release tag or commit
         id: meta
@@ -437,7 +538,7 @@ jobs:
         # universal binary, assembles + ad-hoc-signs LTBox.app, and packages
         # it as a .tar.gz. No Developer ID here — notarization is optional
         # (set MACOS_SIGN_IDENTITY + add signing secrets to enable it).
-        run: ./misc/macos/make-app.sh
+        run: python3 .github/scripts/cache_metrics.py run release-build ./misc/macos/make-app.sh
 
       - name: Stage artifact
         id: stage
@@ -461,6 +562,22 @@ jobs:
             ${{ steps.stage.outputs.tarball }}.sha256
           if-no-files-found: error
 
+      - name: Record macOS cache metrics
+        if: always()
+        continue-on-error: true
+        env:
+          TARGET_CACHE_HIT: ${{ steps.macos-cache.outputs.cache-hit }}
+        run: python3 .github/scripts/cache_metrics.py report target
+
+      - name: Upload cache measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-cache-metrics
+          path: ${{ runner.temp }}/cache-metrics/
+          retention-days: 14
+
+
   test-macos:
     # macOS test gate — distinct from the universal packaging job so validation
     # can run in parallel with the slower two-slice release build. Both Mac
@@ -472,6 +589,8 @@ jobs:
     name: Test macos_${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      CI_CACHE_LABEL: macOS native test dependency cache
     strategy:
       fail-fast: false
       matrix:
@@ -489,21 +608,53 @@ jobs:
           rustup show
           rustup target add ${{ matrix.target }}
 
-      - name: Cargo source cache
-        uses: ./.github/actions/cargo-sources
+      - name: Identify Apple toolchain for dependency cache
+        run: |
+          apple_tools="$( { xcodebuild -version; xcrun --show-sdk-version; xcrun --show-sdk-path; clang --version; } | shasum -a 256 | cut -d ' ' -f 1)"
+          echo "APPLE_TOOLCHAIN_KEY=${apple_tools}" >> "${GITHUB_ENV}"
 
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Start cache restore timer
+        run: python3 .github/scripts/cache_metrics.py start dependency-cache-restore
+
+      - name: macOS test dependency target cache
+        id: macos-test-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-native-test-${{ matrix.arch }}-v1
+          key: ${{ env.APPLE_TOOLCHAIN_KEY }}
+          cache-targets: true
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Finish cache restore timer
+        run: python3 .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: cargo clippy (native macOS)
         # Lints the cfg(target_os = "macos") paths that the Windows-targeted
         # clippy job never sees. The cfg is identical for both Apple targets,
         # so linting once on the arm64 leg is enough.
         if: ${{ matrix.arch == 'arm64' }}
-        run: cargo clippy --workspace --all-targets --locked
+        run: python3 .github/scripts/cache_metrics.py run clippy cargo clippy --workspace --all-targets --locked
 
       - name: cargo test --workspace
-        run: cargo test --workspace --locked --target ${{ matrix.target }}
+        run: python3 .github/scripts/cache_metrics.py run workspace-tests cargo test --workspace --locked --target ${{ matrix.target }}
+
+      - name: Record macOS test cache metrics
+        if: always()
+        continue-on-error: true
+        env:
+          TARGET_CACHE_HIT: ${{ steps.macos-test-cache.outputs.cache-hit }}
+        run: python3 .github/scripts/cache_metrics.py report target
+
+      - name: Upload cache measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-test-${{ matrix.arch }}-cache-metrics
+          path: ${{ runner.temp }}/cache-metrics/
+          retention-days: 14
+
 
   test:
     # Cross-built .exes can't execute on the Linux build runners
@@ -530,7 +681,7 @@ jobs:
         run: rustup show
 
       - name: Start cache restore timer
-        run: python ci/cache_metrics.py start dependency-cache-restore
+        run: python .github/scripts/cache_metrics.py start dependency-cache-restore
 
       - name: Windows dependency target cache
         id: windows-cache
@@ -543,16 +694,13 @@ jobs:
           cache-bin: false
 
       - name: Finish cache restore timer
-        run: python ci/cache_metrics.py finish dependency-cache-restore
-
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+        run: python .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: cargo test --workspace
-        run: python ci/cache_metrics.py run workspace-tests cargo test --workspace --locked
+        run: python .github/scripts/cache_metrics.py run workspace-tests cargo test --workspace --locked
 
       - name: Test GUI demo behavior
-        run: python ci/cache_metrics.py run demo-tests cargo test -p ltbox-gui --features demo --locked
+        run: python .github/scripts/cache_metrics.py run demo-tests cargo test -p ltbox-gui --features demo --locked
 
       - name: Snapshot repository cache usage
         if: always()
@@ -563,12 +711,12 @@ jobs:
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/cache-metrics" | Out-Null
           gh api "repos/$env:GITHUB_REPOSITORY/actions/cache/usage" > "$env:RUNNER_TEMP/cache-metrics/repository-cache.json"
 
-      - name: Record cache experiment
+      - name: Record cache metrics
         if: always()
         continue-on-error: true
         env:
           TARGET_CACHE_HIT: ${{ steps.windows-cache.outputs.cache-hit }}
-        run: python ci/cache_metrics.py report target
+        run: python .github/scripts/cache_metrics.py report target
 
       - name: Upload cache measurements
         if: always()
@@ -586,6 +734,8 @@ jobs:
     name: Test linux_x86_64
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      CI_CACHE_LABEL: Linux test dependency cache
     steps:
       - uses: actions/checkout@v7
 
@@ -608,19 +758,45 @@ jobs:
       - name: Install Rust (toolchain pinned by rust-toolchain.toml)
         run: rustup show
 
-      - name: Cargo source cache
-        uses: ./.github/actions/cargo-sources
+      - name: Start cache restore timer
+        run: python3 .github/scripts/cache_metrics.py start dependency-cache-restore
 
-      - name: sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Linux dependency target cache
+        id: linux-cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-native-test-v1
+          cache-targets: true
+          cache-workspace-crates: false
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Finish cache restore timer
+        run: python3 .github/scripts/cache_metrics.py finish dependency-cache-restore
 
       - name: cargo clippy (native Linux)
         # Lints the cfg(target_os = "linux") paths that the Windows-targeted
         # clippy job never sees.
-        run: cargo clippy --workspace --all-targets --locked
+        run: python3 .github/scripts/cache_metrics.py run clippy cargo clippy --workspace --all-targets --locked
 
       - name: cargo test --workspace
-        run: cargo test --workspace --locked
+        run: python3 .github/scripts/cache_metrics.py run workspace-tests cargo test --workspace --locked
+
+      - name: Record Linux cache metrics
+        if: always()
+        continue-on-error: true
+        env:
+          TARGET_CACHE_HIT: ${{ steps.linux-cache.outputs.cache-hit }}
+        run: python3 .github/scripts/cache_metrics.py report target
+
+      - name: Upload cache measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-test-cache-metrics
+          path: ${{ runner.temp }}/cache-metrics/
+          retention-days: 14
+
 
   release:
     name: Draft GitHub Release
