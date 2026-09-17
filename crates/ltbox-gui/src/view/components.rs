@@ -6,9 +6,9 @@ use iced::widget::{self, Space, column, container, row, text};
 use iced::{Element, Length, Theme};
 use theme::with_alpha;
 
-/// The step frame already supplies the title-to-body gap.
+/// Add 8px to the step frame's 16px gap so picker fields sit 24px below the title.
 pub(crate) const PICKER_BODY_PADDING: iced::Padding = iced::Padding {
-    top: 0.0,
+    top: 8.0,
     right: 28.0,
     bottom: 28.0,
     left: 28.0,
