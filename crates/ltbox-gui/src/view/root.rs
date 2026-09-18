@@ -73,6 +73,8 @@ impl App {
         };
         let body = if is_exec || is_selection_step {
             body
+        } else if matches!(self.root.step, 2 | 3 | 5 | 8) {
+            self.wizard_picker_step(step_title, body)
         } else {
             wizard_step_body(step_title, body)
         };

@@ -1445,15 +1445,8 @@ impl App {
             SIDEBAR_RAIL_WIDTH
         };
         let content_width = self.window_size.0 - sidebar;
-        let main_width = if self.window_size_class() == WindowSizeClass::Expanded {
-            let help_width =
-                (content_width * 0.25).clamp(WIZARD_HELP_PANEL_MIN_WIDTH, WIZARD_HELP_PANEL_WIDTH);
-            let block_width = (WIZARD_LIST_MAX_WIDTH + WIZARD_HELP_PANEL_GAP + 1.0 + help_width)
-                .min(content_width - 2.0 * WIZARD_STEP_HORIZONTAL_PADDING);
-            block_width - help_width - 1.0 - 2.0 * WIZARD_HELP_PANEL_GAP
-        } else {
-            content_width.min(WIZARD_LIST_MAX_WIDTH) - 2.0 * WIZARD_STEP_HORIZONTAL_PADDING
-        };
+        let main_width =
+            content_width.min(WIZARD_LIST_MAX_WIDTH) - 2.0 * WIZARD_STEP_HORIZONTAL_PADDING;
         (main_width - 80.0 - actions as f32 * 90.0).max(60.0)
     }
 
@@ -1782,7 +1775,7 @@ impl App {
         self.t(key).to_string()
     }
 
-    /// Keep the same supporting pane beside picker and selection steps.
+    /// Center single-pane pickers within the shared wizard width limit.
     pub(crate) fn wizard_picker_step<'a>(
         &self,
         title: String,
@@ -1795,7 +1788,15 @@ impl App {
             } else {
                 SIDEBAR_RAIL_WIDTH
             };
-        wizard_selection_step(size, width, title, body, Some((String::new(), vec![])))
+        container(
+            container(wizard_step_body(title, body))
+                .width(Length::Fixed(width.clamp(1.0, WIZARD_LIST_MAX_WIDTH)))
+                .height(Length::Fill),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(iced::alignment::Horizontal::Center)
+        .into()
     }
 }
 
