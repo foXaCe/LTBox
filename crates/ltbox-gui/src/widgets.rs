@@ -138,43 +138,13 @@ pub(crate) fn material_circular_progress(size: MaterialProgressSize) -> Element<
         .into()
 }
 
-/// One full pass through the shape sequence.
-const LOADING_INDICATOR_PERIOD: std::time::Duration = std::time::Duration::from_millis(4_000);
-/// Active-indicator diameter. M3 scales this component; 48 is the size
-/// that fits the popup loading slot the app already reserves.
+mod loading;
+
+/// LTBox's existing popup slot uses a 48px uncontained indicator.
 pub(crate) const LOADING_INDICATOR_SIZE: f32 = 48.0;
-/// Lobe counts the indicator morphs through. M3's loading indicator is a
-/// loop over seven Material shapes; expressing them as harmonic lobe
-/// counts gives the same "one shape flows into the next" reading without
-/// needing a shape library and a polygon-interpolation pass.
-const LOADING_INDICATOR_LOBES: [f32; 7] = [3.0, 4.0, 5.0, 4.0, 6.0, 5.0, 3.0];
-/// How far the lobes push off the base circle, as a fraction of radius.
-const LOADING_INDICATOR_AMPLITUDE: f32 = 0.13;
-/// Points sampled around the outline. Enough that the fill reads as a
-/// smooth curve rather than a polygon at this diameter.
-const LOADING_INDICATOR_SAMPLES: usize = 160;
 
 #[derive(Debug, Clone, Copy)]
 struct MaterialLoadingIndicator;
-
-/// Outline radius at angle `theta`, morphing between the lobe count at
-/// `phase` and the next one. Crossfading two cosine harmonics keeps the
-/// transition continuous — stepping the lobe count directly would jump.
-fn loading_indicator_radius(base: f32, theta: f32, phase: f32) -> f32 {
-    let span = LOADING_INDICATOR_LOBES.len() as f32;
-    let pos = phase.rem_euclid(1.0) * span;
-    let index = pos.floor() as usize % LOADING_INDICATOR_LOBES.len();
-    let next = (index + 1) % LOADING_INDICATOR_LOBES.len();
-    // Smoothstep the blend so each shape holds briefly before flowing on,
-    // instead of the whole loop reading as one continuous wobble.
-    let raw = pos - pos.floor();
-    let blend = raw * raw * (3.0 - 2.0 * raw);
-
-    let from = (LOADING_INDICATOR_LOBES[index] * theta).cos();
-    let to = (LOADING_INDICATOR_LOBES[next] * theta).cos();
-    let lobe = from * (1.0 - blend) + to * blend;
-    base * (1.0 + LOADING_INDICATOR_AMPLITUDE * lobe)
-}
 
 impl canvas::Program<Message> for MaterialLoadingIndicator {
     type State = MaterialProgressState;
@@ -190,11 +160,9 @@ impl canvas::Program<Message> for MaterialLoadingIndicator {
             return None;
         };
         let started_at = *state.started_at.get_or_insert(*now);
-        state.phase =
-            now.duration_since(started_at).as_secs_f32() / LOADING_INDICATOR_PERIOD.as_secs_f32();
-        state.phase = state.phase.rem_euclid(1.0);
+        state.phase = now.duration_since(started_at).as_secs_f32();
         Some(canvas::Action::request_redraw_at(
-            *now + MATERIAL_PROGRESS_FRAME,
+            *now + std::time::Duration::from_millis(16),
         ))
     }
 
@@ -208,21 +176,11 @@ impl canvas::Program<Message> for MaterialLoadingIndicator {
     ) -> Vec<canvas::Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
         let center = Point::new(bounds.width / 2.0, bounds.height / 2.0);
-        // Leave room for the lobes so the shape never clips its bounds.
-        let base = (bounds.width.min(bounds.height) / 2.0) / (1.0 + LOADING_INDICATOR_AMPLITUDE);
-        // Rotation is what turns a pulsing outline into something that
-        // reads as active; one turn per shape cycle.
-        let spin = std::f32::consts::TAU * state.phase;
-
+        // A small antialiasing inset prevents clipping at the canvas edge.
+        let radius = bounds.width.min(bounds.height) / 2.0 - 1.0;
         let path = canvas::Path::new(|builder| {
-            for i in 0..=LOADING_INDICATOR_SAMPLES {
-                let theta = std::f32::consts::TAU * (i as f32 / LOADING_INDICATOR_SAMPLES as f32);
-                let radius = loading_indicator_radius(base, theta, state.phase);
-                let angle = theta + spin;
-                let point = Point::new(
-                    center.x + radius * angle.cos(),
-                    center.y + radius * angle.sin(),
-                );
+            for (i, (x, y)) in loading::outline(state.phase).into_iter().enumerate() {
+                let point = Point::new(center.x + radius * x, center.y + radius * y);
                 if i == 0 {
                     builder.move_to(point);
                 } else {
