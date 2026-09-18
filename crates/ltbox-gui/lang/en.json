@@ -769,7 +769,7 @@
   "log_edl_transport_setup": "Setting up USB transport…",
   "log_extracted_manager_apk": "extracted manager APK {member} → {path}",
   "log_flash_wipe_disabled": "Wipe disabled — userdata / metadata will be skipped",
-  "log_flash_wipe_enabled": "Wipe enabled — erasing userdata / metadata / frp before flash",
+  "log_flash_wipe_enabled": "Wipe enabled — erasing userdata / metadata before flash",
   "log_flashphys_starting": "Physical-LUN flash count: {count}",
   "log_gki_extracting_kernel": "Extracting kernel from",
   "log_gki_kernel_zip": "Kernel ZIP: {path}",

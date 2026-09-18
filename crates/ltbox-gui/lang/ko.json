@@ -769,7 +769,7 @@
   "log_edl_transport_setup": "USB 전송 설정 중…",
   "log_extracted_manager_apk": "매니저 APK {member} 추출 → {path}",
   "log_flash_wipe_disabled": "초기화 비활성 — userdata / metadata 건너뜀",
-  "log_flash_wipe_enabled": "초기화 활성 — 플래싱 전에 userdata / metadata / frp 삭제",
+  "log_flash_wipe_enabled": "초기화 활성 — 플래싱 전에 userdata / metadata 삭제",
   "log_flashphys_starting": "물리 LUN {count}개 플래싱 시작",
   "log_gki_extracting_kernel": "다음에서 커널 추출 중:",
   "log_gki_kernel_zip": "커널 ZIP: {path}",

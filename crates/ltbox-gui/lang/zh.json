@@ -769,7 +769,7 @@
   "log_edl_transport_setup": "正在设置 USB 传输…",
   "log_extracted_manager_apk": "已提取管理器 APK {member} → {path}",
   "log_flash_wipe_disabled": "已禁用清除 — 跳过 userdata / metadata",
-  "log_flash_wipe_enabled": "已启用清除 — 刷机前擦除 userdata / metadata / frp",
+  "log_flash_wipe_enabled": "已启用清除 — 刷机前擦除 userdata / metadata",
   "log_flashphys_starting": "正在刷写 {count} 个 LUN",
   "log_gki_extracting_kernel": "从以下位置提取内核：",
   "log_gki_kernel_zip": "内核 ZIP: {path}",

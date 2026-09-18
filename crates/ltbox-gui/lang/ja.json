@@ -769,7 +769,7 @@
   "log_edl_transport_setup": "USBトランスポートを設定中…",
   "log_extracted_manager_apk": "マネージャー APK {member} を抽出しました → {path}",
   "log_flash_wipe_disabled": "消去が無効です — userdata / metadata はスキップされます",
-  "log_flash_wipe_enabled": "消去が有効です — フラッシュ前に userdata / metadata / frp を消去します",
+  "log_flash_wipe_enabled": "消去が有効です — フラッシュ前に userdata / metadata を消去します",
   "log_flashphys_starting": "物理 LUN のフラッシュ件数：{count}",
   "log_gki_extracting_kernel": "カーネルを抽出中：",
   "log_gki_kernel_zip": "カーネル ZIP: {path}",

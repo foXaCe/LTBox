@@ -1443,11 +1443,10 @@ impl EdlSession {
             .map_err(|e| EdlError::Session(format!("setbootablestoragedrive failed: {e}")))
     }
 
-    /// Erased on wipe=true (matches v2 `_ERASE_LABELS`).
-    const WIPE_ERASE_BASES: &'static [&'static str] = &["userdata", "metadata", "frp"];
+    /// Erased on wipe=true. frp is intentionally not erased.
+    const WIPE_ERASE_BASES: &'static [&'static str] = &["userdata", "metadata"];
 
-    /// Skipped on wipe=false. Narrower than `WIPE_ERASE_BASES`: frp is
-    /// not user state. Matches v2 `_patch_xml_for_wipe` (wipe=0).
+    /// Skipped on wipe=false. Matches v2 `_patch_xml_for_wipe` (wipe=0).
     const KEEP_DATA_SKIP_BASES: &'static [&'static str] = &["userdata", "metadata"];
 
     /// Match `label` against bases, with or without `_a`/`_b` suffix.
@@ -1522,7 +1521,7 @@ impl EdlSession {
 
     /// Flash with explicit user-data mode.
     ///
-    /// `wipe=true` (v2 `pre_erase=True`): erase userdata/metadata/frp
+    /// `wipe=true` (v2 `pre_erase=True`): erase userdata/metadata
     /// (+ slot variants) before flashing, then flash rawprograms, then
     /// apply patches.
     ///
@@ -1579,7 +1578,7 @@ impl EdlSession {
     /// data-wipe outcome is decided entirely by which rawprogram the catalog
     /// selected (e.g. a persist-preserving `save_persist` variant vs a
     /// `write_persist` one), not by any LTBox-side keep/wipe policy. Callers
-    /// that want the userdata/metadata keep-skip or the userdata/metadata/frp
+    /// that want the userdata/metadata keep-skip or the userdata/metadata
     /// pre-erase must use [`Self::flash_rawprogram_with_wipe`] instead.
     pub fn flash_rawprogram_verbatim(
         &mut self,
@@ -2503,7 +2502,11 @@ mod tests {
             plan.iter()
                 .map(|entry| entry.label.as_str())
                 .collect::<Vec<_>>(),
-            ["metadata", "frp", "userdata_b"]
+            ["metadata", "userdata_b"]
+        );
+        assert!(
+            !plan.iter().any(|entry| entry.label == "frp"),
+            "frp must not be pre-erased"
         );
         let template = "erase {label} (LUN {lun}, start {start}, {sectors} sectors)";
         assert_eq!(
@@ -2512,10 +2515,6 @@ mod tests {
         );
         assert_eq!(
             plan[1].log_line_with_template(template),
-            "[EDL] erase frp (LUN 1, start 24576, 128 sectors)"
-        );
-        assert_eq!(
-            plan[2].log_line_with_template(template),
             "[EDL] erase userdata_b (LUN 3, start 65536, 8192 sectors)"
         );
     }
@@ -2541,7 +2540,7 @@ mod tests {
         let missing_lun = TempXml::new(
             r#"
             <data>
-              <program label="frp" start_sector="24576" num_partition_sectors="128" />
+              <program label="userdata" start_sector="24576" num_partition_sectors="128" />
             </data>
             "#,
         );
@@ -2772,7 +2771,7 @@ mod tests {
                 .count(),
             10
         );
-        assert!(wipe_plan.iter().any(|entry| entry.label == "frp"));
+        assert!(!wipe_plan.iter().any(|entry| entry.label == "frp"));
     }
 
     #[test]

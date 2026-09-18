@@ -769,7 +769,7 @@
   "log_edl_transport_setup": "Настройка USB-транспорта…",
   "log_extracted_manager_apk": "извлечён APK менеджера {member} → {path}",
   "log_flash_wipe_disabled": "Очистка выключена — userdata / metadata пропускаются",
-  "log_flash_wipe_enabled": "Очистка включена — стирание userdata / metadata / frp перед прошивкой",
+  "log_flash_wipe_enabled": "Очистка включена — стирание userdata / metadata перед прошивкой",
   "log_flashphys_starting": "Количество прошиваемых физических LUN: {count}",
   "log_gki_extracting_kernel": "Извлечение ядра из",
   "log_gki_kernel_zip": "Kernel ZIP: {path}",
