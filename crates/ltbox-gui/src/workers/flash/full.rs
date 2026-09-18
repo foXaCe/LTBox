@@ -2171,7 +2171,7 @@ mod tests {
 
     #[test]
     fn expected_hashes_cover_all_accepted_assets() {
-        assert_eq!(EFISP_GBL_RELEASE_TAG, "5.3.120-mod5");
+        assert_eq!(EFISP_GBL_RELEASE_TAG, "6.2.192-mod2");
         assert_eq!(EFISP_EXPECTED_ASSETS.len(), 4);
         for (name, hash) in EFISP_EXPECTED_ASSETS {
             assert_eq!(hash.len(), 64, "{name} hash length");
