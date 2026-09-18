@@ -124,6 +124,10 @@ impl Write for Transport {
         let command = document.root_element().first_element_child().unwrap();
         match command.tag_name().name() {
             "read" => {
+                assert_eq!(
+                    self.program_count, 0,
+                    "Unexpected readback after programming"
+                );
                 match self.fault {
                     Some(Fault::GptDisconnect) => return Err(io::ErrorKind::BrokenPipe.into()),
                     Some(Fault::GptTimeout) => return Ok(bytes.len()),
@@ -560,5 +564,86 @@ fn single_image_apis_reject_empty_sources_without_programming() {
         };
         assert!(result.is_err(), "{api}");
         assert!(fixture.events.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn efisp_erase_programs_exact_zero_image_without_readback() {
+    for sector_size in [512, 4096] {
+        let mut fixture = Fixture::new(sector_size, false, None);
+        fixture
+            .session
+            .erase_partition_at("efisp", 4, "64", 3, &mut Vec::new())
+            .unwrap();
+        let events = fixture.events.lock().unwrap();
+        assert_eq!(events[0], Event::Program(64, 3));
+        let mut total = 0;
+        for event in &events[1..] {
+            let Event::Payload(bytes) = event else {
+                panic!("Unexpected event: {event:?}")
+            };
+            assert!(bytes.iter().all(|b| *b == 0));
+            total += bytes.len();
+        }
+        assert_eq!(total, 3 * sector_size);
+    }
+}
+
+#[test]
+fn efisp_zero_write_propagates_transfer_failures_and_does_not_report_completion() {
+    for fault in [
+        Fault::CommandWrite(1),
+        Fault::DisconnectedPayload(1),
+        Fault::FinalNak(1),
+        Fault::FinalTimeout(1),
+    ] {
+        let mut fixture = Fixture::new(4096, false, Some(fault));
+        let mut log = Vec::new();
+        assert!(
+            fixture
+                .session
+                .erase_partition_at("efisp", 4, "64", 3, &mut log)
+                .is_err()
+        );
+        assert!(!log.iter().any(|line| line
+            == &format!(
+                "[EDL] {}",
+                ltbox_core::i18n::tr("log_edl_erased_part").replace("{part}", "efisp")
+            )));
+    }
+}
+
+#[test]
+fn efisp_zero_write_rejects_empty_geometry_before_commands() {
+    let mut fixture = Fixture::new(4096, false, None);
+    assert!(
+        fixture
+            .session
+            .erase_partition_at("efisp", 4, "64", 0, &mut Vec::new())
+            .is_err()
+    );
+    assert!(fixture.events.lock().unwrap().is_empty());
+}
+
+#[test]
+fn rawprogram_efisp_erase_uses_zero_program_but_other_labels_keep_erase() {
+    for label in ["efisp", "userdata", ""] {
+        let mut fixture = Fixture::new(4096, false, None);
+        let xml = format!(
+            r#"<data><erase label="{label}" physical_partition_number="4" start_sector="64" num_partition_sectors="3" /></data>"#
+        );
+        let doc = roxmltree::Document::parse(&xml).unwrap();
+        let node = doc.root_element().first_element_child().unwrap();
+        fixture
+            .session
+            .erase_program_node(&node, &mut Vec::new())
+            .unwrap();
+        let events = fixture.events.lock().unwrap();
+        if label == "efisp" {
+            assert_eq!(events[0], Event::Program(64, 3));
+            assert!(events[1..].iter().all(|event| matches!(event, Event::Payload(bytes) if bytes.iter().all(|byte| *byte == 0))));
+        } else {
+            assert_eq!(*events, vec![Event::Erase(64, 3)]);
+        }
     }
 }

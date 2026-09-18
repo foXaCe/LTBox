@@ -1241,8 +1241,46 @@ impl EdlSession {
                 .replace("{start}", start_sector)
                 .replace("{sectors}", &num_sectors.to_string())
         );
-        send_firehose_erase(&mut self.dev, num_sectors, lun, start_sector)
-            .map_err(|e| EdlError::Session(format!("Erase {part_name} failed: {e}")))?;
+        if part_name == "efisp" {
+            // On GBL devices, Firehose <erase> can read back as zero within
+            // the session yet expose the old EFISP image after reboot. Use a
+            // full zero-image program instead. Stream it rather than creating
+            // a partition-sized allocation or temporary file. No readback.
+            let sector_size = self.dev.fh_config().storage_sector_size;
+            if num_sectors == 0
+                || sector_size == 0
+                || self.dev.fh_config().send_buffer_size < sector_size
+            {
+                return Err(EdlError::Session(
+                    "Invalid EFISP zero-write geometry".into(),
+                ));
+            }
+            let bytes = padded_transfer_bytes(num_sectors, sector_size)?;
+            let mut zeros = std::io::Read::take(std::io::repeat(0), bytes);
+            register_flash_bytes(bytes);
+            begin_partition_progress(part_name, bytes, false);
+            let mut last_percent = None;
+            ltbox_core::live!(
+                log,
+                "[EDL] efisp: programming {bytes} zero bytes (LUN {lun}, start {start_sector})"
+            );
+            qdl::firehose_program_storage_with_progress(
+                &mut self.dev,
+                &mut zeros,
+                part_name,
+                num_sectors,
+                0,
+                lun,
+                start_sector,
+                |completed, total| {
+                    update_flash_progress(&mut last_percent, part_name, completed, total)
+                },
+            )
+            .map_err(|e| EdlError::Session(format!("Zero-fill {part_name} failed: {e}")))?;
+        } else {
+            send_firehose_erase(&mut self.dev, num_sectors, lun, start_sector)
+                .map_err(|e| EdlError::Session(format!("Erase {part_name} failed: {e}")))?;
+        }
         ltbox_core::live!(
             log,
             "[EDL] {}",
@@ -1823,6 +1861,15 @@ impl EdlSession {
         require_destructive_coords(node, ctx)?;
         let lun: u8 = parse_xml_attr(node, "physical_partition_number", 0u8, ctx)?;
         let start_sector = node.attribute("start_sector").unwrap_or("0");
+
+        // Named EFISP erases use the same zero-program policy as the
+        // partition wizard and the conditional full-firmware cleanup.
+        if node
+            .attribute("label")
+            .is_some_and(|label| label.trim() == "efisp")
+        {
+            return self.erase_partition_at("efisp", lun, start_sector, num_sectors, log);
+        }
 
         ltbox_core::live!(
             log,
