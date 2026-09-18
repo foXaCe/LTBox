@@ -61,16 +61,6 @@ impl App {
                 self.root.file_path = None;
                 self.root.ksuinit_path = None;
                 self.root.module_path = None;
-                // ReSukiSU has no Stable channel — if the user had Stable
-                // picked before switching to ReSukiSU, force Nightly so the
-                // hidden-Stable version step lands on the sole valid choice
-                // instead of showing an orphan "no selection" state.
-                if p == Provider::ReSukiSU && self.root.version == Some(VerChoice::Stable) {
-                    self.root.version = Some(VerChoice::Nightly);
-                    self.root.nightly_source = None;
-                    self.root.run_id = None;
-                    self.root.run_id_buffer.clear();
-                }
                 Task::none()
             }
             RootMsg::RootMode(m) => {
@@ -718,6 +708,14 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::*;
+
+    #[test]
+    fn resukisu_keeps_release_channel_when_switching_provider() {
+        let mut app = App::default();
+        app.root.version = Some(VerChoice::Stable);
+        let _ = app.update_root(RootMsg::RootProvider(Provider::ReSukiSU));
+        assert_eq!(app.root.version, Some(VerChoice::Stable));
+    }
 
     #[test]
     fn nightly_auto_opens_picker_and_pins_selected_run() {

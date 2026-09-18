@@ -901,9 +901,7 @@ mod root_target_tests {
                 continue;
             }
             for version in [RootVersion::Stable, RootVersion::Nightly] {
-                if provider == RootProvider::ReSukiSU && version == RootVersion::Stable
-                    || provider == RootProvider::Skroot && version == RootVersion::Nightly
-                {
+                if provider == RootProvider::Skroot && version == RootVersion::Nightly {
                     continue;
                 }
                 checked += 1;

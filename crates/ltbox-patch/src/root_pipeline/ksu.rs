@@ -1238,13 +1238,7 @@ mod tests {
         for (provider, repo) in providers.iter().copied() {
             // ----- Stable -----
             let stable_label = format!("{repo} stable");
-            // ReSukiSU has no Stable releases — expect Err.
-            if matches!(provider, RootProvider::ReSukiSU) {
-                report.push((
-                    stable_label.clone(),
-                    "skipped (no Stable channel)".to_string(),
-                ));
-            } else {
+            {
                 let tmp = tempfile::tempdir().expect("tempdir");
                 let manager_apk = tmp.path().join("manager.apk");
                 let mut log = Vec::new();
@@ -1387,9 +1381,7 @@ mod tests {
     /// Nightly counterpart to `lkm_payload_download_smoke` — exercises
     /// `download_ksu_payload_nightly` so the per-kernel `.ko` artifact
     /// selection + ksuinit extraction get checked against every
-    /// provider's actual nightly run, including ReSukiSU which has no
-    /// Stable channel and is the only path that's actually used in
-    /// production for that fork.
+    /// provider's actual nightly run, including ReSukiSU.
     ///
     ///     cargo test -p ltbox-patch --lib -- --ignored --nocapture lkm_payload_nightly_download_smoke
     #[test]

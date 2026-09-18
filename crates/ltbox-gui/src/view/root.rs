@@ -841,14 +841,7 @@ impl App {
             }
         };
 
-        // ReSukiSU ships nightlies only — hide the Stable card so users
-        // can't pick a channel that has no release assets. Other providers
-        // keep both.
-        let cards = if self.root.provider == Some(Provider::ReSukiSU) {
-            column![mk(VerChoice::Nightly)].spacing(2.0)
-        } else {
-            column![mk(VerChoice::Stable), mk(VerChoice::Nightly)].spacing(2.0)
-        };
+        let cards = column![mk(VerChoice::Stable), mk(VerChoice::Nightly)].spacing(2.0);
 
         wizard_selection_step(
             size_class,

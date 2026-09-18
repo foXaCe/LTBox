@@ -23,16 +23,14 @@ use super::RootProvider;
 ///
 /// Spoofed variants go first so providers that ship both `-spoofed` and
 /// non-spoofed release APKs (KernelSU-Next today, SukiSU going forward)
-/// land on the spoofed one. ReSukiSU has no stable channel, hence empty.
+/// land on the spoofed one. Release lists can include prereleases.
 pub(super) fn ksu_manager_stable_preferences(provider: RootProvider) -> &'static [&'static str] {
     match provider {
         RootProvider::KernelSU => &["-release.apk"],
         RootProvider::KernelSUNext => &["-spoofed", "-release.apk"],
         RootProvider::SukiSU => &["-spoofed", "-release.apk", "_releases.apk"],
-        // ReSukiSU publishes no stable releases; GUI gates this off but we
-        // also return empty here so a stray Stable call fails fast instead
-        // of grabbing some unrelated asset.
-        RootProvider::ReSukiSU => &[],
+        // Device ABI, not host ABI: LTBox targets ARM64 Android devices.
+        RootProvider::ReSukiSU => &["-arm64-v8a-release.apk", "-universal-release.apk"],
         _ => &[],
     }
 }
@@ -251,6 +249,33 @@ mod tests {
         select_manager_asset,
     };
     use std::path::PathBuf;
+
+    #[test]
+    fn resukisu_release_prefers_arm64_and_falls_back_to_universal() {
+        use super::{RootProvider, ksu_manager_stable_preferences};
+        let preferences = ksu_manager_stable_preferences(RootProvider::ReSukiSU);
+        let mut assets: Vec<(String, String)> = [
+            "ReSukiSU_v4.2.0-rc2_35144-x86_64-release.apk",
+            "ReSukiSU_v4.2.0-rc2_35144-universal-release.apk",
+            "ReSukiSU_v4.2.0-rc2_35144-armeabi-v7a-release.apk",
+            "ReSukiSU_v4.2.0-rc2_35144-arm64-v8a-debug.apk",
+            "ReSukiSU_v4.2.0-rc2_35144-arm64-v8a-release.apk",
+        ]
+        .into_iter()
+        .map(|name| (name.into(), "url".into()))
+        .collect();
+        assert_eq!(
+            select_manager_asset(&assets, preferences),
+            assets.last().cloned()
+        );
+        assets.pop();
+        assert_eq!(
+            select_manager_asset(&assets, preferences),
+            Some(assets[1].clone())
+        );
+        assets.remove(1);
+        assert!(select_manager_asset(&assets, preferences).is_none());
+    }
 
     #[test]
     fn sukisu_plural_release_suffix_is_selected() {
