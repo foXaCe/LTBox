@@ -24,13 +24,13 @@ LTBox brings firmware flashing, region conversion, rooting, and recovery tools i
 
 ## Supported devices
 
-LTBox supports **TB320FC, TB321FU, TB322FC, TB323FU, TB324ZC, TB376FC, TB390FU, TB520FU, and TB710FU**.
+LTBox supports **TB320FC, TB321FU, TB322FC, TB323FU, TB324ZC, TB376FC, TB390FU, TB391FC, TB520FU, and TB710FU**.
 
 Features depend on the model, firmware, and connection mode:
 
 | Device group | Important limitations |
 | --- | --- |
-| TB376FC / TB390FU | Root, unroot, GPU tuning, and boot rescue are unavailable. Rollback information is read-only. |
+| TB376FC / TB390FU / TB391FC | Root, unroot, GPU tuning, and boot rescue are unavailable. Rollback information is read-only. |
 | TB323FU / TB324ZC | GKI rooting, boot rescue, and AVB region conversion are unavailable. |
 
 ## Install and connect

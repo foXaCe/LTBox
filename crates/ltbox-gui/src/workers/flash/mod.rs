@@ -120,15 +120,12 @@ fn manual_device_floors(
 use ltbox_core::model::{RollbackPolicy, SUPPORTED_MODELS, capabilities, fingerprint_capabilities};
 
 fn xiaoxin_pro13_token(text: &str) -> Option<&'static str> {
-    [
-        ltbox_core::model::TB376FC_MODEL,
-        ltbox_core::model::TB390FU_MODEL,
-    ]
-    .into_iter()
-    .find(|model| {
-        text.split(|c: char| !c.is_ascii_alphanumeric())
-            .any(|token| token.eq_ignore_ascii_case(model))
-    })
+    ltbox_core::model::XIAOXIN_PRO13_MODELS
+        .into_iter()
+        .find(|model| {
+            text.split(|c: char| !c.is_ascii_alphanumeric())
+                .any(|token| token.eq_ignore_ascii_case(model))
+        })
 }
 
 fn xiaoxin_pro13_cross_model(device_model: &str, firmware_fingerprint: Option<&str>) -> bool {
@@ -722,12 +719,7 @@ fn country_partitions_for(
     device_model: &str,
     firmware_fingerprint: Option<&str>,
 ) -> &'static [&'static str] {
-    let xiaoxin_pro13_sku = [
-        ltbox_core::model::TB376FC_MODEL,
-        ltbox_core::model::TB390FU_MODEL,
-    ]
-    .iter()
-    .any(|m| {
+    let xiaoxin_pro13_sku = ltbox_core::model::XIAOXIN_PRO13_MODELS.iter().any(|m| {
         firmware_fingerprint
             .map(|fp| fingerprint_token_match(fp, m))
             .unwrap_or(false)
@@ -1112,6 +1104,10 @@ mod tests {
             country_partitions_for("TB390FU", None),
             &["proinfo", "persist"][..]
         );
+        assert_eq!(
+            country_partitions_for("TB391FC", None),
+            &["proinfo", "persist"][..]
+        );
         // Every other model uses devinfo + persist.
         assert_eq!(
             country_partitions_for("TB330FU", None),
@@ -1142,7 +1138,7 @@ mod tests {
         assert_eq!(super::effective_flash_rollback_mode(On, true, false), Auto);
         assert_eq!(super::effective_flash_rollback_mode(Off, true, false), Off);
         for mode in [On, Auto, Manual, Off] {
-            for model in ["TB376FC", "TB390FU"] {
+            for model in ltbox_core::model::XIAOXIN_PRO13_MODELS {
                 let restricted = super::xiaoxin_pro13_token(model).is_some();
                 assert_eq!(
                     super::effective_flash_rollback_mode(mode, false, restricted),
@@ -1193,9 +1189,10 @@ mod tests {
     }
 
     #[test]
-    fn supported_models_include_both_xiaoxin_pro13_tokens() {
-        assert!(super::SUPPORTED_MODELS.contains(&"TB376FC"));
-        assert!(super::SUPPORTED_MODELS.contains(&"TB390FU"));
+    fn supported_models_include_every_xiaoxin_pro13_token() {
+        for token in ltbox_core::model::XIAOXIN_PRO13_MODELS {
+            assert!(super::SUPPORTED_MODELS.contains(&token), "{token}");
+        }
     }
 
     #[test]
@@ -1217,6 +1214,18 @@ mod tests {
             "TB390FU",
             Some("Lenovo/TB390FU/TB390FU:15/build")
         ));
+        assert!(xiaoxin_pro13_cross_model(
+            "TB391FC",
+            Some("Lenovo/TB390FU/TB390FU:15/build")
+        ));
+        assert!(xiaoxin_pro13_cross_model(
+            "TB390FU",
+            Some("Lenovo/TB391FC_PRC/TB391FC:15/build")
+        ));
+        assert!(!xiaoxin_pro13_cross_model(
+            "TB391FC",
+            Some("Lenovo/TB391FC_PRC/TB391FC:15/build")
+        ));
         assert!(supported_model_identity_match(
             "Lenovo/TB390FU/TB390FU:15/build",
             "TB390FU"
@@ -1224,6 +1233,14 @@ mod tests {
         assert!(!supported_model_identity_match(
             "Lenovo/TB390FU/TB390FU:15/build",
             "TB376FC"
+        ));
+        assert!(supported_model_identity_match(
+            "Lenovo/TB391FC_PRC/TB391FC:15/build",
+            "TB391FC"
+        ));
+        assert!(!supported_model_identity_match(
+            "Lenovo/TB391FC_PRC/TB391FC:15/build",
+            "TB390FU"
         ));
     }
 

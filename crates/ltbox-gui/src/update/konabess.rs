@@ -13,7 +13,10 @@ impl App {
                 KonaBessMsg::KonaBessSelectLoader | KonaBessMsg::KonaBessNext
             )
         {
-            self.error_msg = Some(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+            self.error_msg = Some(tr_args!(
+                "model_unsupported",
+                model = "TB376FC / TB390FU / TB391FC"
+            ));
             return Task::none();
         }
         match msg {

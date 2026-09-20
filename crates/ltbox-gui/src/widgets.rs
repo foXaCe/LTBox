@@ -882,7 +882,7 @@ pub(crate) fn device_portrait(model: &str) -> DevicePortrait {
         "TB322FC" => DevicePortrait::Png(TB322FC_HANDLE.clone()),
         "TB323FU" => DevicePortrait::Png(TB323FU_HANDLE.clone()),
         TB324ZC_MODEL => DevicePortrait::Png(TB324ZC_HANDLE.clone()),
-        "TB376FC" | "TB390FU" => DevicePortrait::Png(TB376FC_HANDLE.clone()),
+        "TB376FC" | "TB390FU" | "TB391FC" => DevicePortrait::Png(TB376FC_HANDLE.clone()),
         "TB520FU" => DevicePortrait::Png(TB520FU_HANDLE.clone()),
         "TB710FU" => DevicePortrait::Png(TB710FU_HANDLE.clone()),
         _ => DevicePortrait::Svg(GENERIC_TABLET_SVG_HANDLE.clone()),
@@ -1118,6 +1118,7 @@ mod tests {
     fn xiaoxin_pro13_models_use_the_shared_png_portrait() {
         assert!(matches!(device_portrait("TB376FC"), DevicePortrait::Png(_)));
         assert!(matches!(device_portrait("TB390FU"), DevicePortrait::Png(_)));
+        assert!(matches!(device_portrait("TB391FC"), DevicePortrait::Png(_)));
     }
 
     #[test]

@@ -24,13 +24,13 @@ LTBox는 **Windows, Linux, macOS**에서 펌웨어 플래싱, 지역 변환, 루
 
 ## 지원 기기
 
-LTBox는 **TB320FC, TB321FU, TB322FC, TB323FU, TB324ZC, TB376FC, TB390FU, TB520FU, TB710FU**를 지원합니다.
+LTBox는 **TB320FC, TB321FU, TB322FC, TB323FU, TB324ZC, TB376FC, TB390FU, TB391FC, TB520FU, TB710FU**를 지원합니다.
 
 사용할 수 있는 기능은 모델, 펌웨어, 연결 모드에 따라 다릅니다.
 
 | 기기 | 주요 제한 사항 |
 | --- | --- |
-| TB376FC / TB390FU | 루팅, 루팅 해제, GPU 조정, 부팅 복구를 지원하지 않습니다. 롤백 정보는 조회만 가능합니다. |
+| TB376FC / TB390FU / TB391FC | 루팅, 루팅 해제, GPU 조정, 부팅 복구를 지원하지 않습니다. 롤백 정보는 조회만 가능합니다. |
 | TB323FU / TB324ZC | GKI 루팅, 부팅 복구, AVB 지역 변환을 지원하지 않습니다. |
 
 ## 설치 및 연결

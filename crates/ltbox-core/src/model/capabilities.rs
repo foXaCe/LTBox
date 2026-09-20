@@ -6,9 +6,9 @@
 use super::{LAVIE_TAB_9QHD1_MODEL, token_match};
 
 /// Models in the existing GUI and firmware resolver order.
-pub const SUPPORTED_MODELS: [&str; 9] = [
-    "TB320FC", "TB321FU", "TB322FC", "TB323FU", "TB324ZC", "TB376FC", "TB390FU", "TB520FU",
-    "TB710FU",
+pub const SUPPORTED_MODELS: [&str; 10] = [
+    "TB320FC", "TB321FU", "TB322FC", "TB323FU", "TB324ZC", "TB376FC", "TB390FU", "TB391FC",
+    "TB520FU", "TB710FU",
 ];
 
 /// Rollback protection and supported rollback-index operations.
@@ -131,7 +131,7 @@ const XIAOXIN_PRO13: ModelCapabilities = ModelCapabilities {
     ..GENERIC
 };
 
-const PROFILES: [(&str, &ModelCapabilities); 10] = [
+const PROFILES: [(&str, &ModelCapabilities); 11] = [
     (SUPPORTED_MODELS[0], &TB320FC),
     (SUPPORTED_MODELS[1], &TB321FU),
     (SUPPORTED_MODELS[2], &TB322FC),
@@ -139,8 +139,9 @@ const PROFILES: [(&str, &ModelCapabilities); 10] = [
     (SUPPORTED_MODELS[4], &TB324ZC),
     (SUPPORTED_MODELS[5], &XIAOXIN_PRO13),
     (SUPPORTED_MODELS[6], &XIAOXIN_PRO13),
-    (SUPPORTED_MODELS[7], &GENERIC),
+    (SUPPORTED_MODELS[7], &XIAOXIN_PRO13),
     (SUPPORTED_MODELS[8], &GENERIC),
+    (SUPPORTED_MODELS[9], &GENERIC),
     (LAVIE_TAB_9QHD1_MODEL, &TB320FC),
 ];
 
@@ -221,7 +222,7 @@ mod tests {
 
     #[test]
     fn special_models_restrict_operations_and_select_boot_paths() {
-        for model in ["TB376FC", "TB390FU", "tb390fu"] {
+        for model in ["TB376FC", "TB390FU", "TB391FC", "tb390fu", "tb391fc"] {
             let profile = capabilities(model);
             assert!(!profile.root && !profile.gki_root && !profile.unroot);
             assert!(!profile.konabess && !profile.rescue && !profile.region_avb_conversion);

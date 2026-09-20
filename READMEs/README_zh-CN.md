@@ -24,13 +24,13 @@ LTBox 支持 **Windows、Linux 和 macOS**，提供固件刷写、区域转换�
 
 ## 支持的设备
 
-LTBox 支持 **TB320FC、TB321FU、TB322FC、TB323FU、TB324ZC、TB376FC、TB390FU、TB520FU 和 TB710FU**。
+LTBox 支持 **TB320FC、TB321FU、TB322FC、TB323FU、TB324ZC、TB376FC、TB390FU、TB391FC、TB520FU 和 TB710FU**。
 
 可用功能取决于型号、固件和连接模式。
 
 | 设备 | 主要限制 |
 | --- | --- |
-| TB376FC / TB390FU | 不支持 Root、移除 Root、GPU 调整和启动修复。回滚信息仅供查看。 |
+| TB376FC / TB390FU / TB391FC | 不支持 Root、移除 Root、GPU 调整和启动修复。回滚信息仅供查看。 |
 | TB323FU / TB324ZC | 不支持 GKI Root、启动修复和 AVB 区域转换。 |
 
 ## 安装与连接

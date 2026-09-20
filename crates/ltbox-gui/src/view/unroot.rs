@@ -106,7 +106,7 @@ impl App {
         let icon_size = self.wizard_list_icon(WIZARD_LIST_GLYPH_ICON_SIZE);
         let metrics = self.wizard_list_metrics(WIZARD_LIST_LABEL_SIZE, WIZARD_LIST_DESC_SIZE);
         let xiaoxin_pro13 = !ltbox_core::model::capabilities(&self.device.model).unroot;
-        let unsupported = tr_args!("model_unsupported", model = "TB376FC / TB390FU");
+        let unsupported = tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC");
         // Unroot reuses the Lucide puzzle/layers glyphs that the root
         // wizard uses for the LKM/GKI pick — context (title + label)
         // disambiguates.

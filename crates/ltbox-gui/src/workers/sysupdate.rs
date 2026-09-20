@@ -624,7 +624,7 @@ fn rescue_capability_error(profile: &ltbox_core::model::ModelCapabilities) -> Op
             model = if profile.requires_sahara_manifest {
                 "TB323FU"
             } else {
-                "TB376FC / TB390FU"
+                "TB376FC / TB390FU / TB391FC"
             }
         )
     })
@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn disabled_rescue_models_are_rejected_before_device_access() {
-        for model in ["TB323FU", "TB376FC", "TB390FU"] {
+        for model in ["TB323FU", "TB376FC", "TB390FU", "TB391FC"] {
             let phases = PhaseReporter::from_labels(vec!["unused".into()]);
             let error = sysupdate_worker(
                 SysUpdateAction::Rescue,

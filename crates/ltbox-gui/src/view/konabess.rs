@@ -51,7 +51,7 @@ impl App {
         let nav: Element<'_, Message> = if konabess_nav_visible(self.konabess.step) {
             let is_confirm = self.konabess.step == 2;
             let unsupported = (!ltbox_core::model::capabilities(&self.device.model).konabess)
-                .then(|| tr_args!("model_unsupported", model = "TB376FC / TB390FU"))
+                .then(|| tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC"))
                 .or_else(|| {
                     (self.konabess.step == 0 && !self.device_reachable())
                         .then(|| self.t("err_no_device_connected").to_string())

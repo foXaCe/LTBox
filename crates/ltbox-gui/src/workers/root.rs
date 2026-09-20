@@ -104,7 +104,10 @@ pub(crate) fn root_worker(
 ) -> Result<RootWorkerResult, String> {
     let mut log = Vec::new();
     if !ltbox_core::model::capabilities(&device_model).root {
-        return Err(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+        return Err(tr_args!(
+            "model_unsupported",
+            model = "TB376FC / TB390FU / TB391FC"
+        ));
     }
     if provider == Some(Provider::KernelSULocal) {
         local_ksu
@@ -459,7 +462,10 @@ pub(crate) fn root_worker(
                 let image_capabilities =
                     || ltbox_core::model::fingerprint_capabilities(&root_image_fingerprint);
                 if image_capabilities().any(|capabilities| !capabilities.root) {
-                    return Err(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+                    return Err(tr_args!(
+                        "model_unsupported",
+                        model = "TB376FC / TB390FU / TB391FC"
+                    ));
                 }
                 if is_gki_route && image_capabilities().any(|capabilities| !capabilities.gki_root) {
                     return Err(tr_args!("model_unsupported", model = device_model.as_str()));
@@ -794,7 +800,7 @@ mod tests {
     fn unsupported_model_workers_reject_before_inputs_or_device_access() {
         let app = crate::App::default();
         let phases = || PhaseReporter::from_labels(vec!["prepare".into()]);
-        for model in ["TB376FC", "TB390FU"] {
+        for model in ["TB376FC", "TB390FU", "TB391FC"] {
             let result = root_worker(
                 None,
                 Some(RootMode::Gki),
@@ -815,11 +821,11 @@ mod tests {
             );
             assert_eq!(
                 result.unwrap_err(),
-                tr_args!("model_unsupported", model = "TB376FC / TB390FU")
+                tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC")
             );
         }
-        for model in ["TB376FC", "TB390FU"] {
-            let expected = tr_args!("model_unsupported", model = "TB376FC / TB390FU");
+        for model in ["TB376FC", "TB390FU", "TB391FC"] {
+            let expected = tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC");
             let result = super::super::unroot::unroot_worker(
                 String::new(),
                 crate::UnrootType::MagiskLkm,

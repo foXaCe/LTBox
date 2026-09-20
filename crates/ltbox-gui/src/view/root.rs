@@ -445,7 +445,7 @@ impl App {
                 WindowSizeClass::Expanded => SIDEBAR_EXPANDED_WIDTH,
             };
         let xiaoxin_pro13 = !ltbox_core::model::capabilities(&self.device.model).root;
-        let unsupported = tr_args!("model_unsupported", model = "TB376FC / TB390FU");
+        let unsupported = tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC");
         let families = [
             Family::Magisk,
             Family::KernelSU,

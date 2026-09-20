@@ -127,8 +127,10 @@ impl App {
                     return Task::none();
                 }
                 if !ltbox_core::model::capabilities(&self.device.model).unroot {
-                    self.error_msg =
-                        Some(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+                    self.error_msg = Some(tr_args!(
+                        "model_unsupported",
+                        model = "TB376FC / TB390FU / TB391FC"
+                    ));
                     return Task::none();
                 }
                 let Some(unroot_type) = self.unroot.unroot_type else {

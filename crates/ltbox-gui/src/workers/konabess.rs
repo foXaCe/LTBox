@@ -149,7 +149,10 @@ impl KonaBessInspectionBackend for DeviceBackend<'_> {
                 ltbox_core::model::fingerprint_capabilities(fp).any(|p| !p.konabess)
             })
         {
-            return Err(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+            return Err(tr_args!(
+                "model_unsupported",
+                model = "TB376FC / TB390FU / TB391FC"
+            ));
         }
         match exploit_gate_kind(image_capabilities, self.uses_gbl) {
             ExploitGateKind::EfispGbl => {
@@ -299,7 +302,10 @@ pub(crate) fn konabess_inspection_worker(
 ) -> Result<KonaBessInspectionResult, String> {
     let mut log = Vec::new();
     if !ltbox_core::model::capabilities(&device_model).konabess {
-        return Err(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+        return Err(tr_args!(
+            "model_unsupported",
+            model = "TB376FC / TB390FU / TB391FC"
+        ));
     }
     let work_dir = ltbox_core::app_paths::work_dir_for("konabess");
     let _ = std::fs::remove_dir_all(&work_dir);
@@ -605,7 +611,10 @@ pub(crate) fn konabess_flash_worker(
         .as_deref()
         .is_some_and(|fp| ltbox_core::model::fingerprint_capabilities(fp).any(|p| !p.konabess))
     {
-        return Err(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+        return Err(tr_args!(
+            "model_unsupported",
+            model = "TB376FC / TB390FU / TB391FC"
+        ));
     }
     // The fingerprint selects the route; execute_flash separately verifies
     // the inspection ABL and the current session ABL before trusting it.

@@ -464,8 +464,10 @@ impl App {
                     return Task::none();
                 }
                 if !ltbox_core::model::capabilities(&self.device.model).root {
-                    self.error_msg =
-                        Some(tr_args!("model_unsupported", model = "TB376FC / TB390FU"));
+                    self.error_msg = Some(tr_args!(
+                        "model_unsupported",
+                        model = "TB376FC / TB390FU / TB391FC"
+                    ));
                     return Task::none();
                 }
                 // Reject stale selections made before the model was identified.
@@ -793,7 +795,7 @@ mod tests {
 
     #[test]
     fn unsupported_model_messages_cannot_start_operations() {
-        for model in ["TB376FC", "TB390FU"] {
+        for model in ["TB376FC", "TB390FU", "TB391FC"] {
             let mut app = App::default();
             app.device.model = model.into();
             let _ = app.update_root(RootMsg::RootFamily(Family::Magisk));
@@ -802,7 +804,10 @@ mod tests {
             assert!(!app.operation.is_running());
             assert_eq!(
                 app.error_msg,
-                Some(tr_args!("model_unsupported", model = "TB376FC / TB390FU"))
+                Some(tr_args!(
+                    "model_unsupported",
+                    model = "TB376FC / TB390FU / TB391FC"
+                ))
             );
             app.error_msg = None;
             let _ = app.update_unroot(UnrootMsg::UnrootExecStart);

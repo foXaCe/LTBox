@@ -184,6 +184,7 @@ mod tests {
             "TB323FU",
             "TB376FC",
             "TB390FU",
+            "TB391FC",
             "TB320FC",
             "LAVIETab9QHD1",
             "",

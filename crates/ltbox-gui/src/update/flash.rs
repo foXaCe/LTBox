@@ -692,6 +692,14 @@ mod tests {
                     RollbackSetting::Manual,
                 ],
             ),
+            (
+                "TB391FC",
+                vec![
+                    RollbackSetting::On,
+                    RollbackSetting::Off,
+                    RollbackSetting::Manual,
+                ],
+            ),
         ] {
             let mut app = App::default();
             app.device.model = model.to_string();
@@ -711,7 +719,7 @@ mod tests {
 
     #[test]
     fn manual_confirmation_rechecks_changed_device_policy() {
-        for model in ["TB376FC", "TB390FU"] {
+        for model in ["TB376FC", "TB390FU", "TB391FC"] {
             let mut app = App::default();
             app.device.model = "TB320FC".into();
             app.flash.firmware_rollback_indices = Some((Ok(1), Ok(1)));

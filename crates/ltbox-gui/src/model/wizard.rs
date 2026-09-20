@@ -2455,7 +2455,7 @@ mod flash_tests {
             ltbox_patch::efisp_load::EfispLoad::Undetermined
         ));
 
-        for model in ["TB323FU", "TB376FC", "TB390FU"] {
+        for model in ["TB323FU", "TB376FC", "TB390FU", "TB391FC"] {
             let fingerprint = format!("qti/{model}/{model}:15/build:user/release-keys");
             assert!(!firmware_needs_bootloader_step(
                 KeyClass::Lenovo,
