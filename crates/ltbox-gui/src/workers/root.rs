@@ -794,7 +794,7 @@ mod tests {
     fn unsupported_model_workers_reject_before_inputs_or_device_access() {
         let app = crate::App::default();
         let phases = || PhaseReporter::from_labels(vec!["prepare".into()]);
-        for model in ["TB376FC", "TB390FU", "TB323FU"] {
+        for model in ["TB376FC", "TB390FU"] {
             let result = root_worker(
                 None,
                 Some(RootMode::Gki),
@@ -814,14 +814,9 @@ mod tests {
                 app.live_labels(),
                 phases(),
             );
-            let blocked = if model == "TB323FU" {
-                "TB323FU"
-            } else {
-                "TB376FC / TB390FU"
-            };
             assert_eq!(
                 result.unwrap_err(),
-                tr_args!("model_unsupported", model = blocked)
+                tr_args!("model_unsupported", model = "TB376FC / TB390FU")
             );
         }
         for model in ["TB376FC", "TB390FU"] {
@@ -844,6 +839,33 @@ mod tests {
                 phases(),
             );
             assert_eq!(result.unwrap_err(), expected);
+        }
+    }
+
+    #[test]
+    fn gbl_gki_workers_reach_loader_validation_without_provider_or_version() {
+        let app = crate::App::default();
+        for model in ["TB323FU", "TB324ZC"] {
+            let result = root_worker(
+                Some(Family::KernelSU),
+                Some(RootMode::Gki),
+                None,
+                None,
+                None,
+                None,
+                None,
+                model.into(),
+                ConnectionStatus::None,
+                None,
+                Vec::new(),
+                String::new(),
+                None,
+                None,
+                String::new(),
+                app.live_labels(),
+                PhaseReporter::from_labels(vec!["prepare".into()]),
+            );
+            assert_eq!(result.unwrap_err(), tr("err_root_loader_not_selected"));
         }
     }
 
