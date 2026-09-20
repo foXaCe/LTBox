@@ -15,6 +15,9 @@ use ltbox_core::{LtboxError, Result, tr_args};
 const SUPERKEY_MIN: usize = 8;
 const SUPERKEY_MAX: usize = 63;
 
+/// FolkPatch removed custom keys in upstream commit 09b6dcbb21ae.
+pub const FOLKPATCH_SUPERKEY: &str = "su";
+
 /// Validate superkey: 8–63 chars, ASCII alphanumeric only.
 pub(crate) fn validate_superkey(sk: &str) -> Result<()> {
     let n = sk.len();
@@ -32,6 +35,8 @@ pub(crate) fn validate_superkey(sk: &str) -> Result<()> {
 }
 
 /// Patch `work_dir/boot.img` with `work_dir/kpimg` + optional KPMs.
+/// An empty key selects APatch's default signature/UID authorization:
+/// upstream `boot_patch.sh` omits `-S` when its manager passes `su`.
 /// Returns `work_dir/boot_patched.img`. All intermediates land in `work_dir`.
 pub fn patch_boot(
     work_dir: &Path,
@@ -39,8 +44,29 @@ pub fn patch_boot(
     superkey: &str,
     log: &mut Vec<String>,
 ) -> Result<PathBuf> {
+    if superkey.is_empty() {
+        return patch_boot_impl(work_dir, kpm_paths, "", true, log);
+    }
     validate_superkey(superkey)?;
+    patch_boot_impl(work_dir, kpm_paths, superkey, false, log)
+}
 
+/// Match FolkPatch's manager and `boot_patch.sh`: the fixed `su` key with `-S`.
+pub fn patch_folkpatch_boot(
+    work_dir: &Path,
+    kpm_paths: &[PathBuf],
+    log: &mut Vec<String>,
+) -> Result<PathBuf> {
+    patch_boot_impl(work_dir, kpm_paths, FOLKPATCH_SUPERKEY, true, log)
+}
+
+fn patch_boot_impl(
+    work_dir: &Path,
+    kpm_paths: &[PathBuf],
+    superkey: &str,
+    root_key: bool,
+    log: &mut Vec<String>,
+) -> Result<PathBuf> {
     // kptools-base defaults LOG_ENABLE off so library embedders don't get
     // `[+]`/`[?]`/`[-]` chatter on stderr unasked. We want it: stderr is
     // tapped by the GUI's stdout_tap into the live log panel, and the
@@ -158,7 +184,7 @@ pub fn patch_boot(
         kpimg_path: &kpimg,
         out_path: &kernel_out,
         superkey,
-        root_key: false,
+        root_key,
         additional: Vec::new(),
         extras,
     })
@@ -187,6 +213,7 @@ mod tests {
     #[test]
     fn superkey_too_short() {
         assert!(validate_superkey("abc").is_err());
+        assert!(validate_superkey(FOLKPATCH_SUPERKEY).is_err());
     }
 
     #[test]
@@ -218,6 +245,68 @@ mod tests {
         let err = patch_boot(tmp.path(), &[], "abcdefgh", &mut log).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("missing boot.img"), "unexpected: {msg}");
+    }
+
+    #[test]
+    fn folkpatch_fixed_key_reaches_boot_processing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = patch_folkpatch_boot(tmp.path(), &[], &mut Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("missing boot.img"));
+    }
+
+    #[test]
+    fn apatch_default_auth_reaches_boot_processing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = patch_boot(tmp.path(), &[], "", &mut Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("missing boot.img"));
+    }
+
+    #[test]
+    #[ignore = "needs LTBOX_TEST_PRISTINE_BOOT_IMG, LTBOX_TEST_APATCH_KPIMG, LTBOX_TEST_APATCH_EXPECTED_BOOT"]
+    fn apatch_default_boot_matches_upstream() {
+        let fixture = |name: &str| PathBuf::from(std::env::var_os(name).expect(name));
+        let tmp = tempfile::tempdir().unwrap();
+        fs::copy(
+            fixture("LTBOX_TEST_PRISTINE_BOOT_IMG"),
+            tmp.path().join("boot.img"),
+        )
+        .unwrap();
+        fs::copy(fixture("LTBOX_TEST_APATCH_KPIMG"), tmp.path().join("kpimg")).unwrap();
+        let output = patch_boot(tmp.path(), &[], "", &mut Vec::new()).unwrap();
+        let expected = fs::read(fixture("LTBOX_TEST_APATCH_EXPECTED_BOOT")).unwrap();
+        let actual = fs::read(output).unwrap();
+        assert_eq!(actual.len(), expected.len(), "boot image sizes differ");
+        assert!(
+            actual == expected,
+            "APatch boot differs from upstream without -S"
+        );
+    }
+
+    /// Compare the actual library path to upstream `boot_patch.sh` with `-S su`.
+    /// Fixtures are external: pristine boot, FolkPatch kpimg, and upstream boot output.
+    #[test]
+    #[ignore = "needs LTBOX_TEST_PRISTINE_BOOT_IMG, LTBOX_TEST_FOLKPATCH_KPIMG, LTBOX_TEST_FOLKPATCH_EXPECTED_BOOT"]
+    fn folkpatch_boot_matches_upstream() {
+        let fixture = |name: &str| PathBuf::from(std::env::var_os(name).expect(name));
+        let tmp = tempfile::tempdir().unwrap();
+        fs::copy(
+            fixture("LTBOX_TEST_PRISTINE_BOOT_IMG"),
+            tmp.path().join("boot.img"),
+        )
+        .unwrap();
+        fs::copy(
+            fixture("LTBOX_TEST_FOLKPATCH_KPIMG"),
+            tmp.path().join("kpimg"),
+        )
+        .unwrap();
+        let output = patch_folkpatch_boot(tmp.path(), &[], &mut Vec::new()).unwrap();
+        let expected = fs::read(fixture("LTBOX_TEST_FOLKPATCH_EXPECTED_BOOT")).unwrap();
+        let actual = fs::read(output).unwrap();
+        assert_eq!(actual.len(), expected.len(), "boot image sizes differ");
+        assert!(
+            actual == expected,
+            "FolkPatch boot differs from upstream -S su"
+        );
     }
 
     #[test]

@@ -115,9 +115,6 @@ impl App {
         if self.root.kernel_version_popup_open {
             layers.push(self.root_kernel_version_popup());
         }
-        if self.root.superkey_popup_open {
-            layers.push(self.root_superkey_popup());
-        }
         if self.should_show_busy_progress_dialog() {
             modeless_layers.push(layers.len());
             layers.push(self.busy_progress_dialog());

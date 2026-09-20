@@ -266,13 +266,6 @@ impl App {
                     self.root.next();
                     return self.update(Message::Root(RootMsg::RootExecStart));
                 }
-                // APatch KPM step: advance only after superkey confirmation.
-                if self.root.step == 8 {
-                    self.root.superkey_buffer.clear();
-                    self.root.superkey_first_entry = None;
-                    self.root.superkey_popup_open = true;
-                    return Task::none();
-                }
                 self.root.next();
                 // Skip loader step when a valid Settings default exists.
                 if self.root.step == 5
@@ -367,61 +360,6 @@ impl App {
             }
             RootMsg::RootKpmRemove(path) => {
                 self.root.kpm_paths.retain(|p| p != &path);
-                Task::none()
-            }
-            RootMsg::RootSuperkeyInput(text) => {
-                self.root.superkey_buffer = text;
-                Task::none()
-            }
-            RootMsg::RootSuperkeyConfirm => {
-                let key = self.root.superkey_buffer.trim().to_string();
-                match self.root.superkey_first_entry.take() {
-                    None => {
-                        // Stage 1 — first entry. Validate the format
-                        // up-front so the user finds out about a too-short
-                        // / non-alnum key on the first round, not after
-                        // re-typing it. Upstream rule: 8–63 alphanumeric.
-                        let valid = (8..=63).contains(&key.len())
-                            && key.chars().all(|c| c.is_ascii_alphanumeric());
-                        if !valid {
-                            self.error_msg = Some(self.t("apatch_superkey_invalid").to_string());
-                            return Task::none();
-                        }
-                        // Stash the validated first entry, blank the
-                        // field, and stay open for the verification
-                        // round. View flips to the "re-enter" prompt
-                        // because `superkey_first_entry.is_some()`.
-                        self.root.superkey_first_entry = Some(key);
-                        self.root.superkey_buffer.clear();
-                        self.error_msg = None;
-                    }
-                    Some(first) => {
-                        // Stage 2 — verification entry. Mismatch resets
-                        // the whole flow so the user types both rounds
-                        // again from scratch (no "edit second field"
-                        // shortcut, since the typo could be in either).
-                        if key != first {
-                            self.error_msg = Some(self.t("apatch_superkey_mismatch").to_string());
-                            self.root.superkey_buffer.clear();
-                            // `superkey_first_entry` already cleared by
-                            // the `.take()` above — stage flips back to
-                            // first-entry automatically.
-                            return Task::none();
-                        }
-                        self.root.superkey = Some(key);
-                        self.root.superkey_buffer.clear();
-                        self.root.superkey_popup_open = false;
-                        self.error_msg = None;
-                        self.root.next();
-                    }
-                }
-                Task::none()
-            }
-            RootMsg::RootSuperkeyCancel => {
-                self.root.superkey_buffer.clear();
-                self.root.superkey_first_entry = None;
-                self.root.superkey_popup_open = false;
-                self.error_msg = None;
                 Task::none()
             }
             RootMsg::RootRunIdInput(text) => {
@@ -587,7 +525,6 @@ impl App {
                     .iter()
                     .map(std::path::PathBuf::from)
                     .collect();
-                let superkey = self.root.superkey.clone().unwrap_or_default();
                 let nightly_run_id = self.root.run_id.as_deref().and_then(|s| s.parse().ok());
                 let release_tag = self.root.release_tag.clone();
 
@@ -670,7 +607,6 @@ impl App {
                                     conn,
                                     fw_folder,
                                     kpm_paths,
-                                    superkey,
                                     nightly_run_id,
                                     release_tag,
                                     preinit_device,
@@ -708,6 +644,32 @@ impl App {
 #[cfg(test)]
 mod tests {
     use crate::*;
+
+    #[test]
+    fn apatch_family_advances_without_superkey() {
+        for version in [VerChoice::Stable, VerChoice::Nightly] {
+            let mut app = App {
+                root: RootWizard {
+                    step: 8,
+                    family: Some(Family::APatch),
+                    version: Some(version),
+                    folder_path: Some("selected-loader".into()),
+                    ..RootWizard::default()
+                },
+                ..App::default()
+            };
+            for provider in [Provider::APatch, Provider::FolkPatch, Provider::APatch] {
+                let _ = app.update_root(RootMsg::RootProvider(provider));
+                app.root.step = 8;
+                let _ = app.update_root(RootMsg::RootNext);
+                assert_eq!(app.root.step, 5);
+                let _ = app.update_root(RootMsg::RootBack);
+                assert_eq!(app.root.step, 8);
+                let _ = app.update_root(RootMsg::RootNext);
+                assert_eq!(app.root.step, 5);
+            }
+        }
+    }
 
     #[test]
     fn resukisu_keeps_release_channel_when_switching_provider() {

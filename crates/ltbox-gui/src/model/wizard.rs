@@ -40,17 +40,6 @@ pub(crate) struct RootWizard {
     pub(crate) folder_path: Option<String>, // Firmware folder (loader + optional testkey)
     /// APatch: `.kpm` modules to embed. Multi-select + per-entry remove.
     pub(crate) kpm_paths: Vec<String>,
-    /// APatch superkey. Secret — never echoed in confirm or any log.
-    pub(crate) superkey: Option<String>,
-    pub(crate) superkey_popup_open: bool,
-    /// Buffer for the currently visible field in the superkey popup;
-    /// reset between the first-entry and re-entry stages.
-    pub(crate) superkey_buffer: String,
-    /// First-entry value held while the popup waits for the user to
-    /// re-enter their key on the second stage. `None` → still on the
-    /// first-entry stage; `Some(v)` → on the verification stage and
-    /// `superkey_buffer` will be compared against `v` on Confirm.
-    pub(crate) superkey_first_entry: Option<String>,
     /// Committed nightly run ID from the build picker or manual entry.
     pub(crate) run_id: Option<String>,
     pub(crate) run_id_popup_open: bool,
@@ -208,8 +197,7 @@ impl RootWizard {
             return ROOT_STEPS_FORKS;
         }
         if self.is_apatch() {
-            // APatch route: Version → KPM → Folder. Superkey popup
-            // lives on the KPM→Folder edge, not as its own step.
+            // APatch family: Version → KPM → Folder, with no key prompt.
             return if self.is_nightly() {
                 ROOT_STEPS_APATCH_NIGHTLY
             } else {
@@ -382,7 +370,7 @@ impl RootWizard {
                 }
                 self.step = 5;
             }
-            // Exit gated by superkey popup — caller sets step = 5 on confirm.
+            // Both APatch providers advance directly after optional KPM selection.
             8 => self.step = 5,
             5 => self.step = 6,
             6 => self.step = 7,
@@ -472,8 +460,7 @@ impl RootWizard {
             },
             5 => self.folder_path.is_some(),
             6 => true,
-            // KPM embedding is optional — the actual gate is the
-            // superkey popup on Next.
+            // KPM embedding is optional.
             8 => true,
             _ => false,
         }

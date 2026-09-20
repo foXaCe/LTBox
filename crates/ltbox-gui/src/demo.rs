@@ -64,7 +64,6 @@ pub(crate) const VALID_SCENES: &[&str] = &[
     "view:root-nightly-source",
     "view:root-run-id",
     "view:root-kernel-version",
-    "view:root-superkey",
     "view:advanced-region-target",
     "view:sysupdate-rescue-loader",
     "view:sysupdate-rescue-region",
@@ -107,7 +106,6 @@ pub(crate) enum RootScene {
     NightlySource,
     RunIdPopup,
     KernelVersionPopup,
-    SuperkeyPopup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,7 +157,6 @@ impl Scene {
             "view:root-nightly-source" => Some(Self::Root(RootScene::NightlySource)),
             "view:root-run-id" => Some(Self::Root(RootScene::RunIdPopup)),
             "view:root-kernel-version" => Some(Self::Root(RootScene::KernelVersionPopup)),
-            "view:root-superkey" => Some(Self::Root(RootScene::SuperkeyPopup)),
             "view:advanced-region-target" => Some(Self::AdvancedRegionTarget),
             "view:sysupdate-rescue-loader" => {
                 Some(Self::SysUpdateRescue(SysUpdateRescueScene::Loader))
@@ -483,14 +480,6 @@ fn apply_root_scene(app: &mut App, scene: RootScene) {
             version: Some(VerChoice::Stable),
             folder_path: Some(FIRMWARE_FOLDER.to_string()),
             kernel_version_popup_open: true,
-            ..RootWizard::default()
-        },
-        RootScene::SuperkeyPopup => RootWizard {
-            step: 8,
-            family: Some(Family::APatch),
-            provider: Some(Provider::APatch),
-            version: Some(VerChoice::Stable),
-            superkey_popup_open: true,
             ..RootWizard::default()
         },
     };
@@ -885,7 +874,6 @@ mod tests {
             ("view:root-nightly-source", View::Root),
             ("view:root-run-id", View::Root),
             ("view:root-kernel-version", View::Root),
-            ("view:root-superkey", View::Root),
             ("view:advanced-region-target", View::Advanced),
             ("view:sysupdate-rescue-loader", View::SystemUpdate),
             ("view:sysupdate-rescue-region", View::SystemUpdate),
@@ -938,11 +926,6 @@ mod tests {
                     assert_eq!(app.root.step, 6);
                     assert!(app.root.kernel_version_popup_open);
                     assert_eq!(app.root.folder_path.as_deref(), Some(FIRMWARE_FOLDER));
-                }
-                Scene::Root(RootScene::SuperkeyPopup) => {
-                    assert_eq!(app.root.step, 8);
-                    assert_eq!(app.root.family, Some(Family::APatch));
-                    assert!(app.root.superkey_popup_open);
                 }
                 Scene::AdvancedRegionTarget => {
                     assert_eq!(app.adv_wizard.action, Some(AdvAction::RegionConvert));

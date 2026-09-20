@@ -1,4 +1,4 @@
-//! Root wizard view + steps + superkey/run-id/kernel-version popups. Extracted from `main.rs`.
+//! Root wizard view + steps + run-id/kernel-version popups. Extracted from `main.rs`.
 
 use crate::focus_button::{self as button, button};
 use crate::*;
@@ -9,11 +9,10 @@ use theme::with_alpha;
 
 impl App {
     pub(crate) fn view_root_wizard(&self) -> Element<'_, Message> {
-        // Superkey / Run-ID / Kernel-version popups all render as
+        // Run-ID / Kernel-version popups render as
         // top-level M3 dialog overlays via `view()`'s layer stack —
         // do NOT early-return for any of them here, otherwise the
-        // KPM step underneath would unmount and Cancel couldn't
-        // restore the curated list.
+        // wizard step underneath would unmount on Cancel.
         if self.log_popup_open && self.root.is_in_exec() {
             return self.log_popup_view();
         }
@@ -222,84 +221,6 @@ impl App {
             .center_x(Length::Fill)
             .align_y(iced::alignment::Vertical::Top)
             .into()
-    }
-
-    pub(crate) fn root_superkey_popup(&self) -> Element<'_, Message> {
-        // Two-stage flow: first-entry vs verification re-entry. The title and
-        // subtitle swap so the user knows the first confirmation did not yet
-        // commit the key.
-        let on_verify_stage = self.root.superkey_first_entry.is_some();
-        let title_key = if on_verify_stage {
-            "apatch_superkey_verify_title"
-        } else {
-            "apatch_superkey_title"
-        };
-        let subtitle_key = if on_verify_stage {
-            "apatch_superkey_verify_subtitle"
-        } else {
-            "apatch_superkey_subtitle"
-        };
-        let superkey = self.root.superkey_buffer.trim();
-        let input_valid = (8..=63).contains(&superkey.len())
-            && superkey.chars().all(|c| c.is_ascii_alphanumeric());
-        let visible_error = self.error_msg.clone().filter(|_| !input_valid).or_else(|| {
-            (!superkey.is_empty() && !input_valid)
-                .then(|| self.t("apatch_superkey_invalid").to_string())
-        });
-        let input_style = if visible_error.is_some() {
-            m3_text_input_error_style
-        } else {
-            m3_text_input_style
-        };
-        let mut input = iced::widget::text_input(
-            self.t("apatch_superkey_placeholder"),
-            &self.root.superkey_buffer,
-        )
-        .on_input(|__v| Message::Root(RootMsg::RootSuperkeyInput(__v)))
-        .secure(true)
-        .padding([8, 12])
-        .line_height(iced::widget::text::LineHeight::Absolute(24.0.into()))
-        .width(Length::Fill)
-        .style(input_style);
-        if input_valid {
-            input = input.on_submit(Message::Root(RootMsg::RootSuperkeyConfirm));
-        }
-        // No field label: this dialog has one input and the headline already
-        // names it, so a label would restate the title verbatim.
-        let mut field = column![input].spacing(6);
-        if let Some(error) = visible_error {
-            field = field.push(dialog_field_error(error));
-        }
-        let header: Element<'_, Message> = column![
-            text(self.t(title_key).to_string())
-                .size(theme::text_size::DIALOG_HEADLINE)
-                .line_height(32.0 / 24.0),
-            text(self.t(subtitle_key).to_string())
-                .size(theme::text_size::BODY_SMALL)
-                .style(muted_style),
-        ]
-        .spacing(3)
-        .into();
-        let mut confirm = m3_filled_button(self.t("btn_ok").to_string());
-        if input_valid {
-            confirm = confirm.on_press(Message::Root(RootMsg::RootSuperkeyConfirm));
-        }
-        let footer: Element<'_, Message> = row![
-            Space::new().width(Length::Fill),
-            m3_outlined_button(self.t("btn_cancel").to_string())
-                .on_press(Message::Root(RootMsg::RootSuperkeyCancel)),
-            confirm,
-        ]
-        .spacing(10)
-        .align_y(iced::Alignment::Center)
-        .into();
-        m3_dialog(dialog_sections(
-            header,
-            field.into(),
-            footer,
-            theme::DIALOG_WIDTH_SM,
-            false,
-        ))
     }
 
     pub(crate) fn root_run_id_popup(&self) -> Element<'_, Message> {
@@ -1002,7 +923,7 @@ impl App {
         }
 
         if self.root.is_apatch() {
-            // Count only — don't echo paths (noisy) or the superkey (secret).
+            // Count only — don't echo the full KPM paths.
             let kpm_summary = if self.root.kpm_paths.is_empty() {
                 self.t("root_kpm_none").to_string()
             } else {

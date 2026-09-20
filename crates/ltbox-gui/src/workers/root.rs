@@ -96,7 +96,6 @@ pub(crate) fn root_worker(
     conn: ConnectionStatus,
     fw_folder: Option<String>,
     kpm_paths: Vec<std::path::PathBuf>,
-    superkey: String,
     nightly_run_id: Option<u64>,
     release_tag: Option<String>,
     preinit_device: String,
@@ -286,7 +285,8 @@ pub(crate) fn root_worker(
         },
         gki_mode: is_gki_route,
         kpm_paths: kpm_paths.clone(),
-        superkey: superkey.clone(),
+        // APatch defaults to signature/UID authorization without a preset key.
+        superkey: String::new(),
         magisk_forks_apk: if matches!(pipe_provider, RootProvider::MagiskFork) {
             file_path_buf.clone()
         } else {
@@ -807,7 +807,6 @@ mod tests {
                 ConnectionStatus::None,
                 None,
                 Vec::new(),
-                String::new(),
                 None,
                 None,
                 String::new(),
@@ -858,7 +857,6 @@ mod tests {
                 ConnectionStatus::None,
                 None,
                 Vec::new(),
-                String::new(),
                 None,
                 None,
                 String::new(),

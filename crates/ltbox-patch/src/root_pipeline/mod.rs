@@ -200,7 +200,8 @@ pub struct RootPipelineConfig {
     pub gki_mode: bool,
     /// APatch / FolkPatch: `.kpm` modules to embed.
     pub kpm_paths: Vec<PathBuf>,
-    /// APatch / FolkPatch: superkey (8..=63 ASCII alphanumeric).
+    /// APatch: empty for default signature/UID auth, or an optional user key
+    /// (8..=63 ASCII alphanumeric). Ignored for FolkPatch.
     pub superkey: String,
     /// Magisk Forks: user-picked variant APK (local-APK-only in v2 parity).
     pub magisk_forks_apk: Option<PathBuf>,
@@ -616,17 +617,31 @@ pub fn build_patched_artifacts(
                 )
             }
             RootFamily::APatch => {
+                let folkpatch = cfg.provider == RootProvider::FolkPatch;
                 ltbox_core::live!(
                     log,
                     "[APatch] {}",
                     tr_args!(
                         "log_apatch_patching_boot",
                         kpm_count = cfg.kpm_paths.len(),
-                        superkey_len = cfg.superkey.len(),
+                        superkey_len = if folkpatch {
+                            crate::apatch::FOLKPATCH_SUPERKEY.len()
+                        } else {
+                            cfg.superkey.len()
+                        },
                     )
                 );
                 (
-                    crate::apatch::patch_boot(&cfg.work_dir, &cfg.kpm_paths, &cfg.superkey, log)?,
+                    if folkpatch {
+                        crate::apatch::patch_folkpatch_boot(&cfg.work_dir, &cfg.kpm_paths, log)?
+                    } else {
+                        crate::apatch::patch_boot(
+                            &cfg.work_dir,
+                            &cfg.kpm_paths,
+                            &cfg.superkey,
+                            log,
+                        )?
+                    },
                     None,
                 )
             }

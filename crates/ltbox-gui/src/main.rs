@@ -2642,7 +2642,6 @@ impl App {
             || self.konabess.target_popup_open
             || self.reboot_confirm_target.is_some()
             || self.sysupdate.rescue_region_popup_open
-            || self.root.superkey_popup_open
             || self.root.run_id_popup_open
             || self.root.kernel_version_popup_open
     }
