@@ -1903,8 +1903,17 @@ struct App {
     operation: OperationExecution,
     /// Persisted recent picks. Rendered as chips under every picker.
     recent_paths: settings_store::RecentPaths,
-    /// When set, every loader picker bypasses to this path. Re-validated at exec.
-    default_loader_path: Option<String>,
+    /// Reuse the loader a model last uploaded successfully, skipping its loader
+    /// step. Off means every loader prompt shows its picker.
+    remember_edl_loader: bool,
+    /// Model name (upper-case) → loader path, populated only by uploads that
+    /// actually completed. Mirrors `settings_store::remembered_edl_loaders`.
+    remembered_edl_loaders: std::collections::BTreeMap<String, String>,
+    /// Model the running operation belongs to, captured before the device
+    /// re-enumerates into EDL (which can blank `device.model`). The loader an
+    /// operation uploads is credited to this, not to whatever is connected when
+    /// the upload lands. Not persisted.
+    loader_memory_model: Option<String>,
     qcom_driver_mode: ltbox_device::driver::QcomDriverMode,
     /// `true` while a Settings "Clean temporary files" sweep is running.
     cleaning_temp: bool,
@@ -2108,7 +2117,9 @@ impl Default for App {
             window_size_dirty: false,
             operation: OperationExecution::default(),
             recent_paths: persisted.recent_paths.clone(),
-            default_loader_path: persisted.default_loader_path.clone(),
+            remember_edl_loader: persisted.remember_edl_loader,
+            remembered_edl_loaders: persisted.remembered_edl_loaders.clone(),
+            loader_memory_model: None,
             qcom_driver_mode,
             cleaning_temp: false,
             temp_files_bytes: None,
@@ -2460,6 +2471,11 @@ impl App {
         self.error_msg = None;
         self.operation_error = None;
         self.clear_flash_progress();
+        // Both operation entry points funnel through here, which is the last
+        // moment the connected model is reliably readable: the device is about
+        // to re-enumerate into EDL, and a re-enumeration can blank the polled
+        // snapshot outright.
+        self.arm_loader_memory();
     }
 
     fn begin_silent_op(&mut self, view: View) {
@@ -2798,22 +2814,23 @@ impl App {
         self.log_dirty = false;
     }
 
-    /// Picker shortcut: routes through the resolved Settings default loader when
-    /// it exists and fits the connected model, else opens `loader_file_spec`.
-    /// Dedupe across `*SelectLoader` handlers.
-    fn pick_loader_with_default<F>(&mut self, on_chosen: F) -> Task<Message>
+    /// Open the EDL loader picker, filtered to the forms the connected model
+    /// accepts. Dedupe across `*SelectLoader` handlers.
+    ///
+    /// Always shows the dialog, including when the model has a remembered
+    /// loader: reaching a loader step that a remembered loader would have
+    /// skipped means the user walked Back to it on purpose, and the only
+    /// reason to do that is to choose a different file.
+    fn pick_loader<F>(&mut self, on_chosen: F) -> Task<Message>
     where
         F: 'static + Send + Fn(Option<String>) -> Message,
     {
-        if let Some(path) = self.resolved_default_loader() {
-            return self.update(on_chosen(Some(path)));
-        }
         pickers::pick_file_for(self.model_loader_file_spec(), &self.recent_paths, on_chosen)
     }
 
     /// Record the picked flash firmware folder and flag whether it ships an EDL
     /// loader (mirroring the worker's dir-then-parent lookup). When it does not,
-    /// pre-fill a configured Settings default loader if it fits the model; the
+    /// pre-fill the model's remembered loader when there is one; the
     /// folder step otherwise requires the user to pick one before advancing.
     fn set_flash_firmware_folder(&mut self, path: String) {
         let was_after_folder = matches!(
@@ -2836,7 +2853,7 @@ impl App {
             .and_then(|loader| prepare_manifest_pick(loader).err());
         self.flash.loader_required = folder_loader.is_none() || folder_loader_error.is_some();
         self.flash.loader_override = if self.flash.loader_required {
-            self.resolved_default_loader()
+            self.remembered_loader_for_model()
         } else {
             None
         };
@@ -2943,82 +2960,88 @@ impl App {
         )
     }
 
-    /// Returns the Settings-level default EDL loader path when it is set
-    /// **and** the file currently exists on disk. Used by every wizard
-    /// open / reset path to decide whether to pre-fill its loader slot
-    /// and skip past the loader step. Returns `None` when the default is
-    /// unset or the file has been moved/deleted since it was saved (in
-    /// which case the wizard falls back to the picker step as if no
-    /// default had been configured — better than auto-advancing past a
-    /// step with a missing file and surfacing the error later).
-    fn resolved_default_loader(&self) -> Option<String> {
-        self.resolve_default_loader().ok()?
-    }
-
-    /// [`Self::resolved_default_loader`] with the rejection reason kept.
+    /// The remembered EDL loader for the connected model, when it is still
+    /// usable. Every wizard consults this to decide whether its loader step
+    /// can be filled in and skipped.
     ///
-    /// `Ok(None)` — no default configured, or the saved file is gone /
-    /// wrong-extension for the model (both already have their own notices).
-    /// `Err(msg)` — the default *is* the right kind of loader but is unusable
-    /// as one, currently only a manifest whose images are not beside it. That
-    /// message is worth showing, because nothing else about the wizard hints
-    /// at why the configured default was skipped.
-    fn resolve_default_loader(&self) -> std::result::Result<Option<String>, String> {
-        let Some(p) = self.default_loader_path.as_deref() else {
-            return Ok(None);
-        };
-        let path = std::path::Path::new(p);
-        // Bypass the default when its extension doesn't fit the connected model
-        // (TB323FU needs the .xml/.x manifest, others a .melf) so the wizard shows
-        // its loader picker instead of auto-advancing with the wrong loader.
+    /// `None` — and therefore the picker — whenever anything is less than
+    /// certain: the feature is switched off, no model has been identified yet
+    /// (a loader is only ever remembered *against* a model, so with no model
+    /// there is nothing to look up), the model has no entry, or the
+    /// remembered file has since moved, stopped fitting the model, or lost
+    /// the manifest payloads beside it.
+    ///
+    /// Silent by design. The user never configured this path — it was learned
+    /// from an operation they ran — so a stale entry falls back to the picker
+    /// rather than accusing them of a misconfiguration.
+    fn remembered_loader_for_model(&self) -> Option<String> {
+        if !self.remember_edl_loader {
+            return None;
+        }
+        let stored = self
+            .remembered_edl_loaders
+            .get(&model_memory_key(self.device.model.as_str())?)?;
+        let path = std::path::Path::new(stored);
         if !path.is_file() || !self.loader_fits_model(path) {
-            return Ok(None);
+            return None;
         }
-        // Same pick-time gate the picker applies: decrypt a `.x` default and
-        // refuse a manifest whose payloads are missing, rather than
-        // auto-advancing every wizard onto a loader that cannot load.
-        prepare_manifest_pick(path).map(|p| Some(p.to_string_lossy().into_owned()))
+        // Same gate the picker applies, so a remembered manifest that lost its
+        // payloads sends the user back to the picker instead of skipping the
+        // step onto a loader that cannot load.
+        prepare_manifest_pick(path)
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned())
     }
 
-    /// Notice to show on a wizard's loader step when the configured default
-    /// loader was bypassed: the extension mismatch, or the manifest's own
-    /// rejection reason. `None` when there is nothing to explain.
-    fn default_loader_notice(&self) -> Option<String> {
-        self.default_loader_path.as_ref()?;
-        match self.resolve_default_loader() {
-            Ok(Some(_)) => None,
-            Ok(None) => (!self.default_loader_fits_model())
-                .then(|| ltbox_core::i18n::tr("loader_default_ext_unsupported")),
-            Err(message) => Some(message),
-        }
-    }
-
-    /// Apply the resolved default loader to whichever advanced-wizard
-    /// loader-step is currently open. Pre-fills the wizard's `loader_path`
-    /// and either advances directly to the Select step (DumpPhys /
-    /// FlashPhys — no scan needed) or fires the GPT scan (FlashParts /
-    /// DumpParts — Select step requires populated rows). Called from
-    /// `AdvConfirm` after a wizard's `_open` flag flips.
+    /// Note which model the operation about to start belongs to, and discard
+    /// any unread upload record from the previous one.
     ///
-    /// Returns `Task::none()` when the default loader is unset or the
-    /// file is missing — the caller's existing flow then surfaces the
-    /// loader step as before.
-    fn apply_default_loader_to_advanced_wizard(&mut self) -> Task<Message> {
-        let Some(path) = self.resolved_default_loader() else {
-            // Default set but its extension doesn't fit the connected model
-            // (resolved to None): surface the open wizard's loader picker with a
-            // notice so it doesn't look like a bug. `loader_step_card` renders it.
-            if let Some(notice) = self.default_loader_notice() {
-                if self.advanced_wizard_open.is_flash_parts() {
-                    self.flash_parts.scan_error = Some(notice);
-                } else if self.advanced_wizard_open.is_dump_parts() {
-                    self.dump_parts.scan_error = Some(notice);
-                } else if self.advanced_wizard_open.is_dump_phys() {
-                    self.dump_phys.loader_error = Some(notice);
-                } else if self.advanced_wizard_open.is_flash_phys() {
-                    self.flash_phys.loader_error = Some(notice);
-                }
-            }
+    /// The model is captured *now* because the device is about to re-enumerate
+    /// into EDL: `device.model` can be blank, or briefly reset entirely, by the
+    /// time the upload succeeds.
+    fn arm_loader_memory(&mut self) {
+        ltbox_device::edl::clear_uploaded_loader();
+        self.loader_memory_model = model_memory_key(self.device.model.as_str());
+    }
+
+    /// Record a loader that just completed its Sahara upload against the model
+    /// the running operation was armed with. No-op when the feature is off,
+    /// when no model was known, or when the entry is already what we'd write.
+    fn remember_uploaded_loader(&mut self, loader: &std::path::Path) {
+        if !self.remember_edl_loader {
+            return;
+        }
+        let Some(model) = self.loader_memory_model.clone() else {
+            return;
+        };
+        let path = loader.to_string_lossy().into_owned();
+        if self.remembered_edl_loaders.get(&model) == Some(&path) {
+            return;
+        }
+        self.remembered_edl_loaders.insert(model, path);
+        self.persist_settings();
+    }
+
+    /// Drain a completed loader upload published by the EDL layer. Called from
+    /// the same tick that drains worker log output.
+    fn drain_uploaded_loader(&mut self) {
+        if let Some(loader) = ltbox_device::edl::take_uploaded_loader() {
+            self.remember_uploaded_loader(&loader);
+        }
+    }
+
+    /// Apply the remembered loader to whichever advanced-wizard loader-step is
+    /// currently open. Pre-fills the wizard's `loader_path` and either advances
+    /// directly to the Select step (DumpPhys / FlashPhys — no scan needed) or
+    /// fires the GPT scan (FlashParts / DumpParts — Select step requires
+    /// populated rows). Called from `AdvConfirm` after a wizard's `_open` flag
+    /// flips.
+    ///
+    /// Returns `Task::none()` when the model has no usable remembered loader —
+    /// the caller's existing flow then surfaces the loader step as before, and
+    /// the user can still reach it with Back after a skip.
+    fn apply_remembered_loader_to_advanced_wizard(&mut self) -> Task<Message> {
+        let Some(path) = self.remembered_loader_for_model() else {
             return Task::none();
         };
         if self.advanced_wizard_open.is_flash_parts() {
@@ -3041,24 +3064,18 @@ impl App {
         Task::none()
     }
 
-    /// Pre-fill the top-level KonaBess wizard from the configured default EDL
+    /// Pre-fill the top-level KonaBess wizard from the model's remembered EDL
     /// loader, preserving the former Advanced-tile entry behavior.
-    fn apply_default_loader_to_konabess(&mut self) {
-        let Some(path) = self.resolved_default_loader() else {
-            self.konabess.loader_error = self.default_loader_notice();
+    fn apply_remembered_loader_to_konabess(&mut self) {
+        let Some(path) = self.remembered_loader_for_model() else {
             return;
         };
-        match self.resolve_loader_input(&path) {
-            Ok(loader) if self.loader_fits_model(std::path::Path::new(&loader)) => {
-                self.konabess.loader_path = Some(loader);
-                self.konabess.loader_error = None;
-                self.konabess.step = 0;
-            }
-            Ok(_) => {
-                self.konabess.loader_error =
-                    Some(self.t("loader_model_mismatch_tooltip").to_string());
-            }
-            Err(message) => self.konabess.loader_error = Some(message),
+        // `remembered_loader_for_model` already fit-checked and gated the path;
+        // resolve only to keep the recents bookkeeping identical to a pick.
+        if let Ok(loader) = self.resolve_loader_input(&path) {
+            self.konabess.loader_path = Some(loader);
+            self.konabess.loader_error = None;
+            self.konabess.step = 0;
         }
     }
 
@@ -3097,7 +3114,8 @@ impl App {
             // Legacy field kept readable by older builds.
             dark_mode: self.dark_mode,
             recent_paths: self.recent_paths.clone(),
-            default_loader_path: self.default_loader_path.clone(),
+            remember_edl_loader: self.remember_edl_loader,
+            remembered_edl_loaders: self.remembered_edl_loaders.clone(),
             qcom_driver_mode: self.qcom_driver_mode.code().to_string(),
             window_size: Some(self.window_restore_size),
             qcom_driver_update_dismissed: self.qcom_driver_update_dismissed,
@@ -3432,16 +3450,6 @@ impl App {
             return loader_ext_fits_model(false, path) || loader_ext_fits_model(true, path);
         }
         loader_ext_fits_model(self.model_capabilities().requires_sahara_manifest, path)
-    }
-
-    /// True when the Settings default EDL loader is unset, or its extension fits
-    /// the connected model (see [`Self::loader_fits_model`]). When false the
-    /// default is bypassed so the wizard's loader picker is shown instead.
-    fn default_loader_fits_model(&self) -> bool {
-        match self.default_loader_path.as_deref() {
-            None => true,
-            Some(p) => self.loader_fits_model(std::path::Path::new(p)),
-        }
     }
 
     /// Which images the unroot folder picker should name.
@@ -3856,6 +3864,195 @@ mod tests {
         )));
         assert_eq!(app.dump_parts.scan_error.as_deref(), Some("scan blew up"));
         assert!(app.dump_parts.loader_error.is_some());
+    }
+
+    /// App with a model connected and that model's loader already remembered.
+    fn app_remembering(model: &str, loader: &std::path::Path) -> App {
+        let mut app = App {
+            device: DeviceSnapshot {
+                model: model.to_string(),
+                ..Default::default()
+            },
+            ..App::default()
+        };
+        app.remembered_edl_loaders.insert(
+            model.to_ascii_uppercase(),
+            loader.to_string_lossy().into_owned(),
+        );
+        app
+    }
+
+    fn write_melf(dir: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("xbl_s_devprg_ns.melf");
+        std::fs::write(&path, b"loader").unwrap();
+        path
+    }
+
+    #[test]
+    fn a_loader_is_remembered_against_the_model_the_operation_started_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let melf = write_melf(dir.path());
+
+        let mut app = App {
+            device: DeviceSnapshot {
+                model: "TB320FC".to_string(),
+                ..Default::default()
+            },
+            ..App::default()
+        };
+        // Arming captures the model now, because the device is about to
+        // re-enumerate into EDL and may stop reporting one.
+        app.arm_loader_memory();
+        app.device.model.clear();
+        app.remember_uploaded_loader(&melf);
+
+        assert_eq!(
+            app.remembered_edl_loaders
+                .get("TB320FC")
+                .map(String::as_str),
+            Some(melf.to_string_lossy().as_ref())
+        );
+        assert!(!app.remembered_edl_loaders.contains_key("TB323FU"));
+    }
+
+    #[test]
+    fn nothing_is_remembered_without_a_model_or_with_the_switch_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let melf = write_melf(dir.path());
+
+        // No model identified → nothing to remember it against.
+        let mut anonymous = App::default();
+        anonymous.arm_loader_memory();
+        anonymous.remember_uploaded_loader(&melf);
+        assert!(anonymous.remembered_edl_loaders.is_empty());
+
+        let mut off = App {
+            device: DeviceSnapshot {
+                model: "TB320FC".to_string(),
+                ..Default::default()
+            },
+            remember_edl_loader: false,
+            ..App::default()
+        };
+        off.arm_loader_memory();
+        off.remember_uploaded_loader(&melf);
+        assert!(off.remembered_edl_loaders.is_empty());
+    }
+
+    #[test]
+    fn a_remembered_loader_is_only_offered_to_its_own_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let melf = write_melf(dir.path());
+        let want = melf.to_string_lossy().into_owned();
+
+        // Case differences in the polled model must not lose the entry.
+        let mut app = app_remembering("TB320FC", &melf);
+        app.device.model = "tb320fc".to_string();
+        assert_eq!(
+            app.remembered_loader_for_model().as_deref(),
+            Some(want.as_str())
+        );
+
+        // A different model on the same App gets the picker, not this loader.
+        app.device.model = "TB328FU".to_string();
+        assert!(app.remembered_loader_for_model().is_none());
+
+        // No model identified at all → nothing to look up.
+        app.device.model.clear();
+        assert!(app.remembered_loader_for_model().is_none());
+
+        // Switched off → still remembered, but not used.
+        app.device.model = "TB320FC".to_string();
+        app.remember_edl_loader = false;
+        assert!(app.remembered_loader_for_model().is_none());
+    }
+
+    #[test]
+    fn a_remembered_loader_that_went_stale_falls_back_to_the_picker() {
+        let dir = tempfile::tempdir().unwrap();
+        let melf = write_melf(dir.path());
+        let mut app = app_remembering("TB320FC", &melf);
+        assert!(app.remembered_loader_for_model().is_some());
+
+        // Moved or deleted since it was learned.
+        std::fs::remove_file(&melf).unwrap();
+        assert!(app.remembered_loader_for_model().is_none());
+
+        // Present again, but a manifest short a payload: the same pick-time
+        // gate applies, so the step is shown rather than skipped onto a loader
+        // that cannot load.
+        let manifest_dir = tempfile::tempdir().unwrap();
+        let manifest = manifest_pack(manifest_dir.path(), &["prog_firehose_ddr.elf"]);
+        app.device.model = "TB323FU".to_string();
+        app.remembered_edl_loaders
+            .insert("TB323FU".to_string(), manifest);
+        assert!(app.remembered_loader_for_model().is_none());
+    }
+
+    #[test]
+    fn a_remembered_loader_skips_the_step_and_back_reopens_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let melf = write_melf(dir.path());
+        let remembered = melf.to_string_lossy().into_owned();
+
+        let mut app = app_remembering("TB320FC", &melf);
+        app.unroot.unroot_type = Some(UnrootType::MagiskLkm);
+        let _ = app.update(Message::Unroot(UnrootMsg::UnrootNext));
+
+        // Method (0) → loader filled in → folder (2), skipping the loader step.
+        assert_eq!(app.unroot.step, 2);
+        assert_eq!(app.unroot.loader_path.as_deref(), Some(remembered.as_str()));
+
+        // Back lands on the skipped step so the user can still change it.
+        let _ = app.update(Message::Unroot(UnrootMsg::UnrootBack));
+        assert_eq!(app.unroot.step, 1);
+        assert_eq!(UNROOT_STEPS[1], "edl_loader_label");
+
+        // A different loader chosen there sticks: Next must not re-skip and
+        // re-apply the remembered one on the way forward.
+        let other = dir.path().join("other.melf");
+        std::fs::write(&other, b"loader").unwrap();
+        let _ = app.update(Message::Unroot(UnrootMsg::UnrootLoaderChosen(Some(
+            other.to_string_lossy().into_owned(),
+        ))));
+        let _ = app.update(Message::Unroot(UnrootMsg::UnrootNext));
+        assert_eq!(
+            app.unroot.loader_path.as_deref(),
+            Some(other.to_string_lossy().as_ref())
+        );
+    }
+
+    #[test]
+    fn without_a_remembered_loader_the_step_is_shown() {
+        let mut app = App {
+            device: DeviceSnapshot {
+                model: "TB320FC".to_string(),
+                ..Default::default()
+            },
+            ..App::default()
+        };
+        app.unroot.unroot_type = Some(UnrootType::MagiskLkm);
+        let _ = app.update(Message::Unroot(UnrootMsg::UnrootNext));
+        assert_eq!(app.unroot.step, 1);
+        assert!(app.unroot.loader_path.is_none());
+        assert!(!app.unroot.can_next());
+    }
+
+    #[test]
+    fn the_remember_switch_keeps_what_was_already_learned() {
+        let dir = tempfile::tempdir().unwrap();
+        let melf = write_melf(dir.path());
+        let mut app = app_remembering("TB320FC", &melf);
+
+        let _ = app.update(Message::Settings(SettingsMsg::SetRememberEdlLoader(false)));
+        assert!(!app.remember_edl_loader);
+        assert!(app.remembered_loader_for_model().is_none());
+        // Turning it off must not throw the memory away — switching back on
+        // restores it instead of making the user relearn it per device.
+        assert!(!app.remembered_edl_loaders.is_empty());
+
+        let _ = app.update(Message::Settings(SettingsMsg::SetRememberEdlLoader(true)));
+        assert!(app.remembered_loader_for_model().is_some());
     }
 
     /// Manifest + the subset of its payloads that should exist on disk.

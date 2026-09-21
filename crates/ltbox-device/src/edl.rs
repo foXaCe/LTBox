@@ -114,6 +114,41 @@ impl FlashProgress {
     }
 }
 
+fn uploaded_loader_slot() -> &'static Mutex<Option<std::path::PathBuf>> {
+    static SLOT: OnceLock<Mutex<Option<std::path::PathBuf>>> = OnceLock::new();
+    SLOT.get_or_init(|| Mutex::new(None))
+}
+
+/// Take the loader whose Sahara upload most recently succeeded, clearing it.
+///
+/// A loader that completed the upload is the only kind worth remembering: it
+/// is proof the file is the right programmer for the device that just accepted
+/// it, which no amount of filename or extension inspection can establish. The
+/// GUI polls this to record the loader against the connected model.
+///
+/// Take-once, because a second read would re-attribute the same upload to
+/// whatever device is connected by then.
+pub fn take_uploaded_loader() -> Option<std::path::PathBuf> {
+    match uploaded_loader_slot().lock() {
+        Ok(mut guard) => guard.take(),
+        Err(poisoned) => poisoned.into_inner().take(),
+    }
+}
+
+/// Drop any unread upload record. Called when an operation starts so a stale
+/// success cannot be credited to the device this operation is about to touch.
+pub fn clear_uploaded_loader() {
+    let _ = take_uploaded_loader();
+}
+
+fn publish_uploaded_loader(loader: &Path) {
+    let mut guard = match uploaded_loader_slot().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = Some(loader.to_path_buf());
+}
+
 fn flash_progress_slot() -> &'static Mutex<Option<FlashProgress>> {
     static SLOT: OnceLock<Mutex<Option<FlashProgress>>> = OnceLock::new();
     SLOT.get_or_init(|| Mutex::new(None))
@@ -578,6 +613,10 @@ impl EdlSession {
         // firmware packs ship the manifest only in this encrypted form. This
         // is the single point loaders are consumed, so decrypting here covers
         // every caller (Flash / Unroot / Rescue / DetectArb / Dump).
+        // Kept across the decryption shadow below: what the caller handed in is
+        // what a wizard holds and what gets remembered, not the sibling `.xml`
+        // an encrypted pick expands into.
+        let picked_loader = loader_path;
         let decrypted_holder;
         let loader_path: &Path =
             if ltbox_core::sahara_xml::is_encrypted_manifest_filename(loader_path) {
@@ -741,6 +780,11 @@ impl EdlSession {
             }
         }
         ltbox_core::live!(log, "[EDL] {}", tr("log_edl_sahara_uploaded"));
+        // The device accepted this programmer — the only proof that exists
+        // that it is the right loader for whatever is on the other end of the
+        // cable. Published here rather than on `Ok(Self)` so a later Firehose
+        // failure, which says nothing about the loader, still counts.
+        publish_uploaded_loader(picked_loader);
 
         // Keep reset_on_drop false to dodge qdl's recursive reset.
         dev.reset_on_drop = false;

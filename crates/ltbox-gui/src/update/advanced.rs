@@ -7,9 +7,9 @@ use ltbox_core::tr_args;
 impl App {
     pub(crate) fn update_dump_phys(&mut self, msg: DumpPhysMsg) -> Task<Message> {
         match msg {
-            DumpPhysMsg::DumpPhysSelectLoader => self.pick_loader_with_default(|__v| {
-                Message::DumpPhys(DumpPhysMsg::DumpPhysLoaderChosen(__v))
-            }),
+            DumpPhysMsg::DumpPhysSelectLoader => {
+                self.pick_loader(|__v| Message::DumpPhys(DumpPhysMsg::DumpPhysLoaderChosen(__v)))
+            }
             DumpPhysMsg::DumpPhysLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
                     app.dump_phys.loader_path = loader;
@@ -92,9 +92,9 @@ impl App {
 
     pub(crate) fn update_flash_phys(&mut self, msg: FlashPhysMsg) -> Task<Message> {
         match msg {
-            FlashPhysMsg::FlashPhysSelectLoader => self.pick_loader_with_default(|__v| {
-                Message::FlashPhys(FlashPhysMsg::FlashPhysLoaderChosen(__v))
-            }),
+            FlashPhysMsg::FlashPhysSelectLoader => {
+                self.pick_loader(|__v| Message::FlashPhys(FlashPhysMsg::FlashPhysLoaderChosen(__v)))
+            }
             FlashPhysMsg::FlashPhysLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
                     app.flash_phys.loader_path = loader;
@@ -178,9 +178,9 @@ impl App {
 
     pub(crate) fn update_dump_parts(&mut self, msg: DumpPartsMsg) -> Task<Message> {
         match msg {
-            DumpPartsMsg::DumpPartsSelectLoader => self.pick_loader_with_default(|__v| {
-                Message::DumpParts(DumpPartsMsg::DumpPartsLoaderChosen(__v))
-            }),
+            DumpPartsMsg::DumpPartsSelectLoader => {
+                self.pick_loader(|__v| Message::DumpParts(DumpPartsMsg::DumpPartsLoaderChosen(__v)))
+            }
             DumpPartsMsg::DumpPartsLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
                     app.dump_parts.loader_path = loader;
@@ -339,9 +339,8 @@ impl App {
 
     pub(crate) fn update_flash_parts(&mut self, msg: FlashPartsMsg) -> Task<Message> {
         match msg {
-            FlashPartsMsg::FlashPartsSelectLoader => self.pick_loader_with_default(|__v| {
-                Message::FlashParts(FlashPartsMsg::FlashPartsLoaderChosen(__v))
-            }),
+            FlashPartsMsg::FlashPartsSelectLoader => self
+                .pick_loader(|__v| Message::FlashParts(FlashPartsMsg::FlashPartsLoaderChosen(__v))),
             FlashPartsMsg::FlashPartsLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
                     app.flash_parts.loader_path = loader;
@@ -605,19 +604,19 @@ impl App {
                 if matches!(a, AdvAction::FlashPartitions) {
                     self.flash_parts.reset();
                     self.advanced_wizard_open = AdvancedWizardOpen::FlashParts;
-                    self.apply_default_loader_to_advanced_wizard()
+                    self.apply_remembered_loader_to_advanced_wizard()
                 } else if matches!(a, AdvAction::DumpPartitions) {
                     self.dump_parts.reset();
                     self.advanced_wizard_open = AdvancedWizardOpen::DumpParts;
-                    self.apply_default_loader_to_advanced_wizard()
+                    self.apply_remembered_loader_to_advanced_wizard()
                 } else if matches!(a, AdvAction::DumpPhysical) {
                     self.dump_phys.reset();
                     self.advanced_wizard_open = AdvancedWizardOpen::DumpPhys;
-                    self.apply_default_loader_to_advanced_wizard()
+                    self.apply_remembered_loader_to_advanced_wizard()
                 } else if matches!(a, AdvAction::FlashPhysical) {
                     self.flash_phys.reset();
                     self.advanced_wizard_open = AdvancedWizardOpen::FlashPhys;
-                    self.apply_default_loader_to_advanced_wizard()
+                    self.apply_remembered_loader_to_advanced_wizard()
                 } else if matches!(a, AdvAction::SimpleFlash) {
                     // Dedicated wizard: intro (description) → folder picker →
                     // confirm → flash. No loader step (the loader comes from
@@ -634,7 +633,7 @@ impl App {
                 // Apply the saved loader only to EDL-based index queries.
                 if matches!(a, AdvAction::DetectArb)
                     && self.rollback_query_needs_loader()
-                    && let Some(path) = self.resolved_default_loader()
+                    && let Some(path) = self.remembered_loader_for_model()
                     && let Ok(resolved) = self.resolve_loader_input(&path)
                 {
                     self.adv_wizard.file_path = Some(resolved);
@@ -737,8 +736,8 @@ impl App {
                     && self.adv_wizard.step == 0
                 {
                     self.adv_wizard.next(); // Country → Loader
-                    if let Some(path) = self.resolved_default_loader() {
-                        // resolved_default_loader already model-fit-checks the path.
+                    if let Some(path) = self.remembered_loader_for_model() {
+                        // `remembered_loader_for_model` already fit-checked it.
                         match self.resolve_loader_input(&path) {
                             Ok(resolved) => {
                                 self.adv_wizard.file_path = Some(resolved);

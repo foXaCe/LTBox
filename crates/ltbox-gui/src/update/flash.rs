@@ -247,10 +247,9 @@ impl App {
                 Task::none()
             }
             FlashMsg::FlashSelectLoader => {
-                // Always open the picker (don't auto-reuse the Settings default
-                // via `pick_loader_with_default`) so the Change button can pick
-                // a different loader — the default was already applied when the
-                // loader-less folder was selected.
+                // The Change button always opens the picker: any remembered
+                // loader was already applied when the loader-less folder was
+                // selected, so pressing Change means picking a different one.
                 pickers::pick_file_for(self.model_loader_file_spec(), &self.recent_paths, |v| {
                     Message::Flash(FlashMsg::FlashLoaderChosen(v))
                 })

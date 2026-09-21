@@ -84,9 +84,9 @@ impl App {
                 }
                 Task::none()
             }
-            UnrootMsg::UnrootSelectLoader => self.pick_loader_with_default(|__v| {
-                Message::Unroot(UnrootMsg::UnrootLoaderChosen(__v))
-            }),
+            UnrootMsg::UnrootSelectLoader => {
+                self.pick_loader(|__v| Message::Unroot(UnrootMsg::UnrootLoaderChosen(__v)))
+            }
             UnrootMsg::UnrootLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
                     app.unroot.loader_path = loader;
@@ -100,14 +100,15 @@ impl App {
                     return self.update(Message::Unroot(UnrootMsg::UnrootExecStart));
                 }
                 self.unroot.next();
-                // If we just advanced onto the loader step and a
-                // Settings-level default loader is configured + still
-                // on disk, pre-fill it + skip straight to the folder
-                // step — matches the Root wizard's loader-skip pattern
-                // (see `RootNext` step-5 fill + advance).
+                // If we just advanced onto the loader step and this model
+                // has a usable remembered loader, pre-fill it + skip straight
+                // to the folder step — matches the Root wizard's loader-skip
+                // pattern (see `RootNext` step-5 fill + advance). Back returns
+                // to the skipped step, and the fill is gated on `is_none()` so
+                // a loader chosen there is not overwritten on the way forward.
                 if self.unroot.step == 1
                     && self.unroot.loader_path.is_none()
-                    && let Some(path) = self.resolved_default_loader()
+                    && let Some(path) = self.remembered_loader_for_model()
                 {
                     self.unroot.loader_path = Some(path);
                     self.unroot.next();
@@ -143,8 +144,8 @@ impl App {
                 let device_model = self.device.model.clone();
                 // Loader is decoupled from the backup folder — `folder`
                 // holds boot.img + vbmeta.img, the loader can live
-                // anywhere (Settings default, or whatever the user
-                // pointed the loader picker at). `validate_loader_path`
+                // anywhere (remembered for this model, or whatever the
+                // user pointed the picker at). `validate_loader_path`
                 // surfaces a missing-file error before the device-side
                 // work starts, matching the other wizards' behaviour.
                 let loader_override =

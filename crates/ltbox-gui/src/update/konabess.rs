@@ -20,9 +20,9 @@ impl App {
             return Task::none();
         }
         match msg {
-            KonaBessMsg::KonaBessSelectLoader => self.pick_loader_with_default(|path| {
-                Message::KonaBess(KonaBessMsg::KonaBessLoaderChosen(path))
-            }),
+            KonaBessMsg::KonaBessSelectLoader => {
+                self.pick_loader(|path| Message::KonaBess(KonaBessMsg::KonaBessLoaderChosen(path)))
+            }
             KonaBessMsg::KonaBessLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
                     // KonaBess additionally refuses a loader whose kind does not

@@ -10,7 +10,12 @@ use theme::with_alpha;
 const SETTINGS_ROW_HEIGHT: f32 = 56.0;
 const SETTINGS_CONTROL_HEIGHT: f32 = 40.0;
 
-fn settings_switch(selected: bool) -> Element<'static, Message> {
+/// Material switch bound to `on_toggle(!selected)`. The message is a parameter
+/// because more than one setting is a plain on/off now.
+fn settings_switch(
+    selected: bool,
+    on_toggle: impl Fn(bool) -> Message,
+) -> Element<'static, Message> {
     let thumb_size = if selected { 24.0 } else { 16.0 };
     let thumb = container(Space::new())
         .width(thumb_size)
@@ -61,7 +66,7 @@ fn settings_switch(selected: bool) -> Element<'static, Message> {
         .padding(8)
         .height(48.0)
         .width(68.0)
-        .on_press(Message::Settings(SettingsMsg::SetUseSystemFont(!selected)))
+        .on_press(on_toggle(!selected))
         .style(|t: &Theme, status| button::Style {
             background: theme::state_layer_bg(status, pal_of(t).on_surface).map(Into::into),
             border: iced::Border {
@@ -442,7 +447,9 @@ impl App {
             seed_control,
         );
 
-        let font_control = settings_switch(self.use_system_font);
+        let font_control = settings_switch(self.use_system_font, |v| {
+            Message::Settings(SettingsMsg::SetUseSystemFont(v))
+        });
         let font_row = settings_row(
             self.t("settings_system_font").to_string(),
             self.t("settings_system_font_desc").to_string(),
@@ -489,38 +496,18 @@ impl App {
             driver_control,
         );
 
-        let default_loader_value = self
-            .default_loader_path
-            .clone()
-            .unwrap_or_else(|| self.t("picker_no_file_selected").to_string());
-        let default_loader_control = row![
-            settings_value_field(default_loader_value),
-            settings_icon_action(
-                icon::fab_open_folder(),
-                self.t("settings_default_loader_browse").to_string(),
-                Some(Message::Settings(SettingsMsg::SettingsPickDefaultLoader)),
-                false,
-            ),
-            settings_icon_action(
-                icon::settings_clear(),
-                self.t("settings_default_loader_clear").to_string(),
-                self.default_loader_path
-                    .is_some()
-                    .then_some(Message::Settings(SettingsMsg::SettingsClearDefaultLoader)),
-                true,
-            ),
-        ]
-        .spacing(8.0)
-        .align_y(iced::Alignment::Center);
-        let default_loader_row = settings_row_with_help(
-            self.t("settings_default_loader").to_string(),
-            self.t("settings_default_loader_desc").to_string(),
-            Some(self.t("settings_default_loader_help").to_string()),
-            default_loader_control.into(),
+        let remember_loader_control = settings_switch(self.remember_edl_loader, |v| {
+            Message::Settings(SettingsMsg::SetRememberEdlLoader(v))
+        });
+        let remember_loader_row = settings_row_with_help(
+            self.t("settings_remember_loader").to_string(),
+            self.t("settings_remember_loader_desc").to_string(),
+            Some(self.t("settings_remember_loader_help").to_string()),
+            remember_loader_control,
         );
         let device_card = settings_card(
             self.t("settings_device_connection_title").to_string(),
-            vec![driver_row, default_loader_row],
+            vec![driver_row, remember_loader_row],
         );
 
         let backup_path = ltbox_core::app_paths::backup_root().display().to_string();

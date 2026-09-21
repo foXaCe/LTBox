@@ -187,6 +187,14 @@ impl Interaction<'_> {
         ) {
             return Some("system-font-switch".into());
         }
+        if matches!(
+            self.action,
+            Some(Message::Settings(crate::SettingsMsg::SetRememberEdlLoader(
+                _
+            )))
+        ) {
+            return Some("remember-edl-loader-switch".into());
+        }
         if matches!(self.action, Some(Message::StartupDisclaimerToggled(_))) {
             return Some("startup-acknowledgement".into());
         }

@@ -300,8 +300,6 @@ impl App {
     /// Step 1 for Change Country Code: pick the EDL loader (the device is
     /// transitioned to EDL with it). Same loader-browse the DetectArb step uses.
     pub(crate) fn adv_wiz_loader_step(&self) -> Element<'_, Message> {
-        let error = (self.default_loader_path.is_some() && !self.default_loader_fits_model())
-            .then(|| self.t("loader_default_ext_unsupported").to_string());
         let mut content = column![self.wizard_picker_row(
             self.adv_wizard.file_path.as_deref(),
             PickerPathKind::File,
@@ -310,16 +308,6 @@ impl App {
         ),]
         .spacing(6)
         .width(Length::Fill);
-        if let Some(error) = error {
-            content =
-                content.push(
-                    text(error)
-                        .size(12)
-                        .style(|t: &Theme| iced::widget::text::Style {
-                            color: Some(pal_of(t).error),
-                        }),
-                );
-        }
         content = content.push(self.recent_file_chips(
             self.loader_picker_exts(),
             |p| Message::Adv(AdvMsg::AdvWizBrowseDone(Some(p))),

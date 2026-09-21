@@ -41,7 +41,7 @@ impl App {
                 }
                 // EDL needs a Firehose loader before Power(reset).
                 if matches!(conn, ConnectionStatus::Edl) {
-                    return self.pick_loader_with_default(move |path| {
+                    return self.pick_loader(move |path| {
                         Message::Reboot(RebootMsg::RebootEdlWithLoader(target, path))
                     });
                 }

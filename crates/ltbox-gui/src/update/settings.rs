@@ -76,22 +76,14 @@ impl App {
                     ),
                 ])
             }
-            SettingsMsg::SettingsPickDefaultLoader => {
-                let spec = self.model_loader_file_spec();
-                pickers::pick_file_for(spec, &self.recent_paths, |__v| {
-                    Message::Settings(SettingsMsg::SettingsDefaultLoaderChosen(__v))
-                })
-            }
-            SettingsMsg::SettingsDefaultLoaderChosen(path) => {
-                if let Some(p) = path {
-                    self.remember_recent(pickers::PickerKind::File, &p);
-                    self.default_loader_path = Some(p);
-                    self.persist_settings();
+            SettingsMsg::SetRememberEdlLoader(remember) => {
+                if self.remember_edl_loader == remember {
+                    return Task::none();
                 }
-                Task::none()
-            }
-            SettingsMsg::SettingsClearDefaultLoader => {
-                self.default_loader_path = None;
+                self.remember_edl_loader = remember;
+                // What has already been learned is kept either way: switching
+                // the feature back on restores it rather than making the user
+                // re-run an operation per device to relearn it.
                 self.persist_settings();
                 Task::none()
             }

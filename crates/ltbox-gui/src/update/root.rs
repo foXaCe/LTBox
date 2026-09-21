@@ -157,9 +157,9 @@ impl App {
             }
             RootMsg::RootSelectFolder => {
                 // Historical field name; value is now a single EDL loader file.
-                // A fitting Settings default loader bypasses the picker; a
-                // model-mismatched (or missing) one falls through to it.
-                self.pick_loader_with_default(|__v| Message::Root(RootMsg::RootLoaderChosen(__v)))
+                // Always the picker: a remembered loader skips this step
+                // entirely, so arriving here means the user wants to choose.
+                self.pick_loader(|__v| Message::Root(RootMsg::RootLoaderChosen(__v)))
             }
             RootMsg::RootLoaderChosen(path) => {
                 self.apply_loader_pick(path, |app, loader, err| {
@@ -267,10 +267,11 @@ impl App {
                     return self.update(Message::Root(RootMsg::RootExecStart));
                 }
                 self.root.next();
-                // Skip loader step when a valid Settings default exists.
+                // Skip the loader step when this model has a usable
+                // remembered loader. Back still lands on it.
                 if self.root.step == 5
                     && self.root.folder_path.is_none()
-                    && let Some(path) = self.resolved_default_loader()
+                    && let Some(path) = self.remembered_loader_for_model()
                 {
                     self.root.folder_path = Some(path);
                     self.root.next();
@@ -332,7 +333,7 @@ impl App {
                 self.root.next();
                 if self.root.step == 5
                     && self.root.folder_path.is_none()
-                    && let Some(path) = self.resolved_default_loader()
+                    && let Some(path) = self.remembered_loader_for_model()
                 {
                     self.root.folder_path = Some(path);
                     self.root.next();

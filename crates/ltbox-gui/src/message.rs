@@ -509,9 +509,9 @@ pub(crate) enum SettingsMsg {
     SetThemeSeed(ThemeSeed),
     SetUseSystemFont(bool),
     SetQcomDriverMode(ltbox_device::driver::QcomDriverMode),
-    SettingsPickDefaultLoader,
-    SettingsDefaultLoaderChosen(Option<String>),
-    SettingsClearDefaultLoader,
+    /// Toggle whether a model's successfully-uploaded EDL loader is
+    /// remembered and reused on its next loader step.
+    SetRememberEdlLoader(bool),
     /// Create and open the persistent device-backup directory.
     OpenBackupFolder,
     /// Remove leftover temp files (`work_*` scratch + `output_*` auto-output).

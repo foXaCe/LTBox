@@ -142,6 +142,15 @@ fn dir_has_rawprogram_pack(dir: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Key a model name is remembered under: trimmed and upper-cased, so the
+/// same device identifies itself consistently however a given connection
+/// state spells its model. `None` for a blank model — nothing to remember
+/// against, and nothing to look up.
+pub(crate) fn model_memory_key(model: &str) -> Option<String> {
+    let trimmed = model.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_ascii_uppercase())
+}
+
 /// Bring a picked Sahara manifest to its plaintext form, decrypting an
 /// encrypted `.x` pick to the sibling `qsahara_device_programmer.xml`
 /// **at pick time** rather than deferring to `EdlSession::open`.

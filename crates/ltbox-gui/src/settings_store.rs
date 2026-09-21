@@ -170,15 +170,23 @@ pub struct PersistedSettings {
     pub dark_mode: bool,
     #[serde(default)]
     pub recent_paths: RecentPaths,
-    /// Optional default EDL loader (`xbl_s_devprg_ns.melf`) path. When
-    /// set, every wizard / Reboot-to-EDL flow auto-fills this path
-    /// instead of opening the file picker. Single-device users skip the
-    /// picker on every loader prompt; the file is still re-validated at
-    /// exec start so a deleted/moved loader surfaces as an error before
-    /// the wizard kicks off the device side. `None` = picker shows as
-    /// before.
-    #[serde(default)]
-    pub default_loader_path: Option<String>,
+    /// Remember the EDL loader each model was last flashed with, and reuse
+    /// it automatically. On by default.
+    ///
+    /// Replaces the old single `default_loader_path`, which had no idea which
+    /// device it belonged to and so had to be bypassed by extension whenever
+    /// the connected model wanted a different loader form. Old settings files
+    /// simply drop that field (serde ignores unknown keys) and start with an
+    /// empty memory.
+    #[serde(default = "default_remember_edl_loader")]
+    pub remember_edl_loader: bool,
+    /// Model name (upper-case) → the loader path that model last completed a
+    /// Sahara upload with. Only written after an upload actually succeeded, so
+    /// an entry is evidence the loader works on that model, not a guess.
+    ///
+    /// `BTreeMap` for deterministic JSON, matching [`RecentPaths::by_kind`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub remembered_edl_loaders: BTreeMap<String, String>,
     /// Qualcomm USB driver family: "userspace" or "kernel". Defaults to
     /// "kernel" on Windows and Linux, "userspace" elsewhere (see
     /// [`default_qcom_driver_mode`]). Unknown / missing values are normalized
@@ -238,6 +246,13 @@ fn detect_os_language() -> String {
         .to_string()
 }
 
+/// EDL-loader memory is on out of the box: the overwhelmingly common case is
+/// one user with one or two devices, who would otherwise re-pick the same file
+/// on every operation.
+fn default_remember_edl_loader() -> bool {
+    true
+}
+
 fn default_theme() -> String {
     String::new()
 }
@@ -270,7 +285,8 @@ impl Default for PersistedSettings {
             use_system_font: false,
             dark_mode: false,
             recent_paths: RecentPaths::default(),
-            default_loader_path: None,
+            remember_edl_loader: default_remember_edl_loader(),
+            remembered_edl_loaders: BTreeMap::new(),
             qcom_driver_mode: default_qcom_driver_mode(),
             window_size: None,
             qcom_driver_update_dismissed: false,
@@ -522,6 +538,53 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         let stored: PersistedSettings = serde_json::from_str(&json).unwrap();
         assert!(stored.use_system_font);
+    }
+
+    #[test]
+    fn loader_memory_defaults_on_and_starts_empty() {
+        let s: PersistedSettings = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(s.remember_edl_loader);
+        assert!(s.remembered_edl_loaders.is_empty());
+        assert!(PersistedSettings::default().remember_edl_loader);
+    }
+
+    #[test]
+    fn a_settings_file_from_the_default_loader_era_still_loads() {
+        // `default_loader_path` had no model attached, so there is nothing to
+        // carry over: the field is simply ignored and the memory starts empty
+        // with the feature on. Everything else in the old file survives.
+        let legacy = r#"{
+            "language": "ko",
+            "default_loader_path": "D:\\fw\\xbl_s_devprg_ns.melf"
+        }"#;
+        let s: PersistedSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(s.language, "ko");
+        assert!(s.remember_edl_loader);
+        assert!(s.remembered_edl_loaders.is_empty());
+    }
+
+    #[test]
+    fn loader_memory_roundtrips_and_is_omitted_when_empty() {
+        let mut s = PersistedSettings::default();
+        assert!(
+            !serde_json::to_string(&s)
+                .unwrap()
+                .contains("remembered_edl_loaders")
+        );
+
+        s.remember_edl_loader = false;
+        s.remembered_edl_loaders
+            .insert("TB320FC".into(), "D:/fw/loader.melf".into());
+        let stored: PersistedSettings =
+            serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(!stored.remember_edl_loader);
+        assert_eq!(
+            stored
+                .remembered_edl_loaders
+                .get("TB320FC")
+                .map(String::as_str),
+            Some("D:/fw/loader.melf")
+        );
     }
 
     #[test]

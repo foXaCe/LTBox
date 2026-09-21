@@ -105,8 +105,8 @@ pub(crate) fn unroot_worker(
         ltbox_device::controller::poll_active_slot(std::time::Duration::from_secs(30), &mut log)
             .map_err(|e| tr_args!("err_unroot_slot_resolve_failed", error = e))?;
 
-    // Decoupled loader — explicit picker /
-    // Settings default takes priority. Fall back
+    // Decoupled loader — an explicit picker or
+    // remembered choice takes priority. Fall back
     // to scanning the backup folder only when no
     // override was set, preserving v3-pre-decouple
     // behaviour for users who still ship a loader

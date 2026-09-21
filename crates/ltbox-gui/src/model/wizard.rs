@@ -532,10 +532,10 @@ pub(crate) struct UnrootWizard {
     pub(crate) unroot_type: Option<UnrootType>,
     pub(crate) folder_path: Option<String>,
     /// Loader file (`xbl_s_devprg_ns.melf`) for the EDL flash. Has
-    /// its own wizard step. The Settings-level default loader
-    /// auto-fills + auto-advances the loader step on Next from the
-    /// method step (mirrors the Root wizard's step-5 fold-through);
-    /// anyone without a default sees the explicit loader picker.
+    /// its own wizard step. A loader remembered for the connected model
+    /// auto-fills + auto-advances that step on Next from the method step
+    /// (mirrors the Root wizard's step-5 fold-through); with nothing
+    /// remembered the explicit loader picker shows.
     pub(crate) loader_path: Option<String>,
     /// Loader-resolution failure, kept apart from any scan error so a
     /// refused pick does not overwrite why the last scan failed.
@@ -793,7 +793,7 @@ pub(crate) struct FlashWizard {
     /// `true` when the selected firmware folder ships no EDL loader, so the
     /// folder step requires a separately-picked loader before advancing.
     pub(crate) loader_required: bool,
-    /// User-picked EDL loader (or the resolved Settings default) used when the
+    /// User-picked EDL loader (or the model's remembered one) used when the
     /// firmware folder has none. `None` + `loader_required` blocks Next.
     pub(crate) loader_override: Option<String>,
     /// Reason the last picked loader was rejected (e.g. a standalone `.melf` on

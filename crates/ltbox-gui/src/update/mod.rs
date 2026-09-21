@@ -288,7 +288,7 @@ impl App {
                     && !self.konabess_in_progress()
                 {
                     self.konabess.reset();
-                    self.apply_default_loader_to_konabess();
+                    self.apply_remembered_loader_to_konabess();
                 }
                 // Loader pre-fill happens on the Next-into-loader-step
                 // transition in `UnrootNext` (mirrors the Root wizard's
@@ -526,7 +526,7 @@ impl App {
                     View::Unroot => self.unroot.reset(),
                     View::KonaBess => {
                         self.konabess.reset();
-                        self.apply_default_loader_to_konabess();
+                        self.apply_remembered_loader_to_konabess();
                     }
                     View::Advanced => {
                         // "Start over" on any Advanced sub-wizard should
@@ -569,6 +569,10 @@ impl App {
                 // Snapshot live firmware-write progress only while the
                 // busy op is on the exact firmware-progress phase.
                 self.refresh_flash_progress_snapshot();
+                // A loader that finished its Sahara upload on the worker
+                // thread is credited to the model this operation was armed
+                // with, so the next run on that model can skip its loader step.
+                self.drain_uploaded_loader();
                 // Batched rebuild — at most one cosmic-text reshape per tick.
                 if self.log_dirty {
                     self.rebuild_log_editor();

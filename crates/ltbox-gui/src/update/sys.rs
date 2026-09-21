@@ -72,9 +72,7 @@ impl App {
                 // never read in this path. File picker with the standard
                 // loader extension filter, recents shared with the rest
                 // of the loader pickers via the File bucket.
-                self.pick_loader_with_default(|__v| {
-                    Message::Sys(SysMsg::SysRescueFolderChosen(__v))
-                })
+                self.pick_loader(|__v| Message::Sys(SysMsg::SysRescueFolderChosen(__v)))
             }
             SysMsg::SysRescueFolderChosen(path) => {
                 if let Some(p) = path {
