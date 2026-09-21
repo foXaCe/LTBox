@@ -216,7 +216,13 @@ impl App {
                                                         "No nightly workflow".into(),
                                                     )
                                                 })?;
-                                        client.recent_available_runs(workflow, branch)
+                                        client.recent_available_runs_matching(
+                                            workflow,
+                                            branch,
+                                            |artifacts| {
+                                                ltbox_patch::root_pipeline::provider_has_nightly_manager(provider, artifacts)
+                                            },
+                                        )
                                     } else {
                                         client.recent_published_releases()
                                     }

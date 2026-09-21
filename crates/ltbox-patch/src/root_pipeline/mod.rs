@@ -271,6 +271,22 @@ pub fn provider_workflow(provider: RootProvider) -> Option<(&'static str, &'stat
     })
 }
 
+/// Require manager artifacts for APatch-family nightly build choices.
+pub fn provider_has_nightly_manager(
+    provider: RootProvider,
+    artifacts: &[ltbox_core::github::WorkflowArtifact],
+) -> bool {
+    if matches!(provider, RootProvider::APatch | RootProvider::FolkPatch) {
+        let names: Vec<_> = artifacts
+            .iter()
+            .map(|artifact| artifact.name.clone())
+            .collect();
+        apatch::select_apatch_nightly_artifact(provider, &names).is_some()
+    } else {
+        !artifacts.is_empty()
+    }
+}
+
 /// Resolve `(repo, run_id)` for a nightly fetch. Manual IDs are validated
 /// against the provider's workflow so bad IDs fail fast, not at nightly.link.
 pub(super) fn resolve_nightly_run(
@@ -930,7 +946,9 @@ mod root_target_tests {
                     if version == RootVersion::Nightly {
                         let (workflow, branch) = provider_workflow(provider).unwrap();
                         cfg.nightly_run_id = GitHubClient::new(provider_repo(provider).unwrap())?
-                            .recent_available_runs(workflow, branch)?
+                            .recent_available_runs_matching(workflow, branch, |artifacts| {
+                                provider_has_nightly_manager(provider, artifacts)
+                            })?
                             .first()
                             .and_then(|r| r.run_id);
                         if cfg.nightly_run_id.is_none() {
@@ -938,6 +956,19 @@ mod root_target_tests {
                                 "No available nightly builds under 90 days".into(),
                             ));
                         }
+                    }
+                    if version == RootVersion::Stable {
+                        // Match the GUI picker, including published prereleases.
+                        cfg.release_tag = Some(
+                            GitHubClient::new(provider_repo(provider).unwrap())?
+                                .recent_published_releases()?
+                                .first()
+                                .ok_or_else(|| {
+                                    LtboxError::Download("No published releases".into())
+                                })?
+                                .tag
+                                .clone(),
+                        );
                     }
                     let manager = stage_root_manager_apk(&cfg, &mut Vec::new())?.unwrap();
                     let mut apk = zip::ZipArchive::new(fs::File::open(&manager)?)

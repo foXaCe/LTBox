@@ -414,12 +414,17 @@ fn compare_artifact_digest(
     let Some(reported) = reported_digest.filter(|digest| !digest.is_empty()) else {
         return Ok(ArtifactDigestStatus::Skipped);
     };
-    let Some(expected) = reported.strip_prefix("sha256:") else {
-        return Ok(ArtifactDigestStatus::Skipped);
+    // A digest that is present but not a well-formed SHA-256 cannot vouch for
+    // the download; reject it rather than treating it as absent.
+    let Some(expected) = reported
+        .strip_prefix("sha256:")
+        .filter(|hex| hex.len() == 64 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    else {
+        return Err(ArtifactDigestMismatch {
+            expected: reported.to_string(),
+            actual: actual_sha256.to_string(),
+        });
     };
-    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Ok(ArtifactDigestStatus::Skipped);
-    }
     if expected.eq_ignore_ascii_case(actual_sha256) {
         Ok(ArtifactDigestStatus::Verified)
     } else {
@@ -665,7 +670,9 @@ pub(super) fn download_ksu_release_payload(
 
     // Resolve the release-tag run once. It always supplies ksuinit and, when
     // the release no longer publishes a raw .ko, supplies the LKM fallback.
-    let run_id = client.workflow_run_for_tag(&tag).map_err(|e| {
+    let (workflow, _) = super::provider_workflow(provider)
+        .ok_or_else(|| LtboxError::Patch(format!("No KSU workflow for {provider:?}")))?;
+    let run_id = client.workflow_run_for_tag(workflow, &tag).map_err(|e| {
         if release_ko.is_none() {
             stable_lkm_sources_exhausted(&tag, &kver, e)
         } else {
@@ -914,16 +921,33 @@ mod tests {
     }
 
     #[test]
-    fn artifact_digest_absent_or_unusable_skips() {
-        for reported in [
-            None,
-            Some(""),
-            Some(SHA256_LOWER),
-            Some("sha256:not-a-hex-digest"),
-        ] {
+    fn artifact_digest_absent_skips() {
+        for reported in [None, Some("")] {
             assert_eq!(
                 compare_artifact_digest(reported, SHA256_LOWER),
                 Ok(ArtifactDigestStatus::Skipped)
+            );
+        }
+    }
+
+    #[test]
+    fn artifact_digest_malformed_fails() {
+        let short = format!("sha256:{}", &SHA256_LOWER[..63]);
+        let other_algorithm = format!("sha512:{SHA256_LOWER}");
+        for reported in [
+            SHA256_LOWER,
+            "sha256:not-a-hex-digest",
+            "sha256:",
+            short.as_str(),
+            other_algorithm.as_str(),
+        ] {
+            assert_eq!(
+                compare_artifact_digest(Some(reported), SHA256_LOWER),
+                Err(ArtifactDigestMismatch {
+                    expected: reported.to_string(),
+                    actual: SHA256_LOWER.to_string(),
+                }),
+                "{reported}"
             );
         }
     }

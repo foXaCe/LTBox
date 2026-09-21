@@ -334,9 +334,9 @@ impl GitHubClient {
             .collect())
     }
 
-    pub fn workflow_run_for_tag(&self, tag: &str) -> Result<u64> {
+    pub fn workflow_run_for_tag(&self, workflow_file: &str, tag: &str) -> Result<u64> {
         let resp: WorkflowRunsResponse = self.get_json(&format!(
-            "/actions/runs?per_page=30&status=completed&branch={tag}"
+            "/actions/workflows/{workflow_file}/runs?per_page=30&status=success&branch={tag}"
         ))?;
         resp.workflow_runs
             .first()
@@ -397,6 +397,16 @@ impl GitHubClient {
         workflow_file: &str,
         branch: &str,
     ) -> Result<Vec<PublishedRelease>> {
+        self.recent_available_runs_matching(workflow_file, branch, |_| true)
+    }
+
+    /// Filter retained artifacts by the provider's payload requirements.
+    pub fn recent_available_runs_matching(
+        &self,
+        workflow_file: &str,
+        branch: &str,
+        accepts: impl Fn(&[WorkflowArtifact]) -> bool,
+    ) -> Result<Vec<PublishedRelease>> {
         let now = chrono::Utc::now();
         let mut choices = Vec::new();
         let mut page = 1;
@@ -416,7 +426,8 @@ impl GitHubClient {
                 if !recent_timestamp(&run.created_at, now) {
                     continue;
                 }
-                if self.workflow_artifact_details(run.id)?.is_empty() {
+                let artifacts = self.workflow_artifact_details(run.id)?;
+                if artifacts.is_empty() || !accepts(&artifacts) {
                     continue;
                 }
                 choices.push(PublishedRelease {
@@ -568,6 +579,17 @@ mod tests {
         artifact.expires_at = now.to_rfc3339();
         assert!(!artifact_available(&artifact, now));
         assert!(!recent_timestamp("invalid", now));
+    }
+
+    #[test]
+    fn release_picker_accepts_a_prerelease_only_repository() {
+        let releases: Vec<Release> = serde_json::from_str(r#"[
+            {"id": 1, "tag_name": "v4.2.0-rc1", "assets": [], "prerelease": true, "published_at": "2026-09-01T00:00:00Z"},
+            {"id": 2, "tag_name": "v4.2.0-rc2", "assets": [], "prerelease": true, "published_at": "2026-09-02T00:00:00Z"}
+        ]"#).unwrap();
+        let choices = recent_releases(releases);
+        assert_eq!(choices[0].tag, "v4.2.0-rc2");
+        assert!(choices.iter().all(|release| release.prerelease));
     }
 
     #[test]

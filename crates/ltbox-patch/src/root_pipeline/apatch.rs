@@ -99,28 +99,10 @@ pub fn download_apatch_payload_nightly(
             "{repo} run {run_id} has no artifacts"
         )));
     }
-    // Case-insensitive prefix match after stripping .zip/.apk.
-    let prefix = match provider {
-        RootProvider::APatch => "apatch",
-        RootProvider::FolkPatch => "folkpatch",
-        _ => "",
-    };
-    let artifact_name = artifact_names
-        .iter()
-        .find(|n| {
-            let lower = n.to_lowercase();
-            let stripped = lower
-                .strip_suffix(".zip")
-                .unwrap_or(&lower)
-                .strip_suffix(".apk")
-                .unwrap_or_else(|| lower.strip_suffix(".zip").unwrap_or(&lower));
-            stripped.starts_with(prefix)
-        })
-        .cloned()
-        .or_else(|| artifact_names.into_iter().next())
-        .ok_or_else(|| {
+    let artifact_name =
+        select_apatch_nightly_artifact(provider, &artifact_names).ok_or_else(|| {
             LtboxError::Patch(format!(
-                "{repo} run {run_id}: no matching artifact for prefix {prefix:?}"
+                "{repo} run {run_id}: no matching manager APK artifact"
             ))
         })?;
     ltbox_core::live!(
@@ -134,7 +116,7 @@ pub fn download_apatch_payload_nightly(
         "APatch",
         repo,
         run_id,
-        &artifact_name,
+        artifact_name,
         "apatch_nightly",
         work_dir,
         &apk_path,
@@ -142,4 +124,80 @@ pub fn download_apatch_payload_nightly(
     )?;
     extract_kpimg_from_apk(repo, &apk_path, work_dir, log)?;
     Ok(run_id)
+}
+
+/// Select an APK artifact, never auxiliary output such as R8 mappings.
+pub(super) fn select_apatch_nightly_artifact(
+    provider: RootProvider,
+    names: &[String],
+) -> Option<&str> {
+    let prefix = match provider {
+        RootProvider::APatch => "apatch",
+        RootProvider::FolkPatch => "folkpatch",
+        _ => return None,
+    };
+    names
+        .iter()
+        .filter(|name| {
+            let lower = name.to_ascii_lowercase();
+            let name = lower.strip_suffix(".zip").unwrap_or(&lower);
+            let name = name.strip_suffix(".apk").unwrap_or(name);
+            name == prefix
+                || name == format!("{prefix}-release")
+                || name == format!("{prefix}-debug")
+                || name.starts_with(&format!("{prefix}-release-"))
+                || name.starts_with(&format!("{prefix}-debug-"))
+        })
+        .min_by_key(|name| name.to_ascii_lowercase().contains("debug"))
+        .map(String::as_str)
+}
+
+#[cfg(test)]
+mod artifact_tests {
+    use super::*;
+    #[test]
+    fn nightly_manager_ignores_mappings_and_prefers_release() {
+        let mappings = ltbox_core::github::WorkflowArtifact {
+            name: "mappings".into(),
+            digest: None,
+            expired: false,
+            created_at: String::new(),
+            expires_at: String::new(),
+        };
+        assert!(!super::super::provider_has_nightly_manager(
+            RootProvider::APatch,
+            std::slice::from_ref(&mappings)
+        ));
+        let manager = ltbox_core::github::WorkflowArtifact {
+            name: "APatch-Release".into(),
+            ..mappings.clone()
+        };
+        assert!(super::super::provider_has_nightly_manager(
+            RootProvider::APatch,
+            &[mappings, manager]
+        ));
+        let names = ["mappings", "APatch-Debug", "APatch-Release"].map(String::from);
+        assert_eq!(
+            select_apatch_nightly_artifact(RootProvider::APatch, &names),
+            Some("APatch-Release")
+        );
+        assert_eq!(
+            select_apatch_nightly_artifact(RootProvider::APatch, &names[..1]),
+            None
+        );
+        assert_eq!(
+            select_apatch_nightly_artifact(RootProvider::FolkPatch, &names),
+            None
+        );
+        let hashed = ["folkpatch-debug-155eb044", "folkpatch-release-155eb044"].map(String::from);
+        assert_eq!(
+            select_apatch_nightly_artifact(RootProvider::FolkPatch, &hashed),
+            Some("folkpatch-release-155eb044")
+        );
+        let names = ["mappings", "FolkPatch.apk.zip"].map(String::from);
+        assert_eq!(
+            select_apatch_nightly_artifact(RootProvider::FolkPatch, &names),
+            Some("FolkPatch.apk.zip")
+        );
+    }
 }
