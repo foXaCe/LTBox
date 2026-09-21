@@ -188,18 +188,15 @@ fn read_edl_start_device(
         let Some(lun) = ltbox_core::partition_lun::lun_for_partition(&part) else {
             continue;
         };
-        let out = work_dir.join(format!("dev_{part}.img"));
-        if let Some(info) = session
-            .dump_partition(&part, &out, 0, lun, log)
-            .ok()
-            .and_then(|_| ltbox_patch::avb::extract_image_avb_info(&out).ok())
-        {
+        // As in `read_device_vbmeta`, a failed dump is not evidence that the
+        // slot is absent — the model and the ARB floor are both derived from
+        // whichever slots answer here.
+        if let Some(info) = dump_avb_info(session, &part, lun, &work_dir, log)? {
             if let Some(fp) = ltbox_patch::avb::build_fingerprint(&info) {
                 device_fps.push(fp);
             }
             vbs_idx[i] = Some(info.rollback_index);
         }
-        let _ = std::fs::remove_file(&out);
     }
     if device_fps.is_empty() {
         return Err(ltbox_core::i18n::tr(
@@ -316,23 +313,54 @@ fn rollback_floors(boot: [Option<u64>; 2], vbs: [Option<u64>; 2]) -> Option<(u64
     Some((boot_floor, vbs_floor))
 }
 
+/// Decide whether a `dump_partition` outcome means "the partition is not
+/// there" or "the read failed".
+///
+/// Only [`EdlError::PartitionNotFound`] is an answer about the device. Every
+/// other error — a timed-out transfer, a USB stall, a Firehose fault — leaves
+/// the partition's existence unknown and must surface as an error.
+///
+/// [`EdlError::PartitionNotFound`]: ltbox_device::edl::EdlError::PartitionNotFound
+fn dump_presence(
+    part: &str,
+    outcome: std::result::Result<(), ltbox_device::edl::EdlError>,
+) -> std::result::Result<bool, String> {
+    match outcome {
+        Ok(()) => Ok(true),
+        Err(ltbox_device::edl::EdlError::PartitionNotFound(_)) => Ok(false),
+        Err(error) => Err(format!("{part}: {error}")),
+    }
+}
+
 /// Dump a partition over EDL and parse its AVB info, cleaning up the temp file.
-/// `None` on any dump/parse failure. Shared with `workers::unroot`, which
-/// compares the device image against the backup folder before writing.
+/// Shared with `workers::unroot`, which compares the device image against the
+/// backup folder before writing.
+///
+/// The two failure modes must not be conflated:
+///
+/// * `Ok(None)` — the partition is genuinely absent, or it dumped but carries
+///   no usable AVB metadata. "That slot is not there" is a real answer.
+/// * `Err` — the dump itself failed, so the device state is unknown. A caller
+///   that reads this as "not there" would infer the active slot from the
+///   surviving slot and drop this one from the rollback floor, which picks the
+///   wrong signing-key class and lowers the floor below what the device
+///   actually committed.
 pub(super) fn dump_avb_info(
     session: &mut ltbox_device::edl::EdlSession,
     part: &str,
     lun: u8,
     work_dir: &std::path::Path,
     log: &mut Vec<String>,
-) -> Option<ltbox_patch::avb::AvbImageInfo> {
+) -> std::result::Result<Option<ltbox_patch::avb::AvbImageInfo>, String> {
     let out = work_dir.join(format!("dev_{part}.img"));
-    let info = session
-        .dump_partition(part, &out, 0, lun, log)
-        .ok()
-        .and_then(|_| ltbox_patch::avb::extract_image_avb_info(&out).ok());
+    let dumped = dump_presence(part, session.dump_partition(part, &out, 0, lun, log));
+    let result = dumped.map(|present| {
+        present
+            .then(|| ltbox_patch::avb::extract_image_avb_info(&out).ok())
+            .flatten()
+    });
     let _ = std::fs::remove_file(&out);
-    info
+    result
 }
 
 /// Device active-slot identity (read from vbmeta_system), for the AVB key-class
@@ -376,14 +404,17 @@ fn read_device_vbmeta(
     let mut vbs_info: [Option<ltbox_patch::avb::AvbImageInfo>; 2] = [None, None];
     let mut boot_idx: [Option<u64>; 2] = [None, None];
     for (i, slot) in ["_a", "_b"].into_iter().enumerate() {
+        // A dump failure aborts instead of falling through as "absent": the
+        // active-slot inference and the rollback floor below both read a
+        // missing slot as a fact about the device.
         vbs_info[i] = dump_avb_info(
             session,
             &format!("vbmeta_system{slot}"),
             vbs_lun,
             work_dir,
             log,
-        );
-        boot_idx[i] = dump_avb_info(session, &format!("boot{slot}"), boot_lun, work_dir, log)
+        )?;
+        boot_idx[i] = dump_avb_info(session, &format!("boot{slot}"), boot_lun, work_dir, log)?
             .map(|info| info.rollback_index);
     }
 
@@ -1081,10 +1112,41 @@ pub(crate) use simple::simple_flash_worker;
 #[cfg(test)]
 mod tests {
     use super::{
-        LenovoFirmwareDevicePolicy, ZSTD_FREE_SPACE_RESERVE_BYTES, lenovo_firmware_device_policy,
-        require_firmware_loader, should_reboot_fastboot_to_system_after_pre_edl_abort,
-        stream_zstd_decoder, zstd_output_limit,
+        LenovoFirmwareDevicePolicy, ZSTD_FREE_SPACE_RESERVE_BYTES, dump_presence,
+        lenovo_firmware_device_policy, require_firmware_loader,
+        should_reboot_fastboot_to_system_after_pre_edl_abort, stream_zstd_decoder,
+        zstd_output_limit,
     };
+
+    #[test]
+    fn dump_presence_reports_a_missing_partition_as_absent() {
+        use ltbox_device::edl::EdlError;
+        assert_eq!(dump_presence("boot_b", Ok(())), Ok(true));
+        assert_eq!(
+            dump_presence("boot_b", Err(EdlError::PartitionNotFound("boot_b".into()))),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn dump_presence_surfaces_a_failed_read_instead_of_calling_it_absent() {
+        use ltbox_device::edl::EdlError;
+        // A transport fault says nothing about whether the slot exists. If it
+        // collapsed to `Ok(false)` the caller would infer the other slot is
+        // active and drop this one from the rollback floor.
+        for error in [
+            EdlError::Session("Firehose read failed: timed out".into()),
+            EdlError::Io(std::io::Error::from(std::io::ErrorKind::TimedOut)),
+            EdlError::AmbiguousPartitionLun("vbmeta_system_a".into()),
+        ] {
+            let outcome = dump_presence("vbmeta_system_a", Err(error));
+            assert!(
+                outcome.is_err(),
+                "a failed read must not be reported as absent: {outcome:?}"
+            );
+            assert!(outcome.unwrap_err().starts_with("vbmeta_system_a: "));
+        }
+    }
 
     #[test]
     fn country_partitions_select_by_model() {

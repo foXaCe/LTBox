@@ -323,6 +323,10 @@ fn verify_against_device(
         tr_args!("live_unroot_verify_dump", label = device_label)
     );
     let device_info = super::flash::dump_avb_info(session, &device_label, lun, &work_dir, log)
+        .map_err(|error| {
+            live!(log, "[Unroot] {error}");
+            tr_args!("err_unroot_device_dump_failed", label = device_label)
+        })?
         .ok_or_else(|| tr_args!("err_unroot_device_dump_failed", label = device_label))?;
     let image_info =
         ltbox_patch::avb::extract_image_avb_info(root_image_path).map_err(|error| {
