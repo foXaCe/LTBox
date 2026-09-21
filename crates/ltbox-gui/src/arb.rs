@@ -41,12 +41,14 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (y, m, d)
 }
 
-/// Only these models expose the rollback floors through fastboot.
+/// Whether the rollback floors can be read over fastboot instead of needing
+/// an EDL programmer. The model side is a capability, not a model list — see
+/// `ModelCapabilities::rollback_floor_via_fastboot`.
 pub(crate) fn rollback_query_uses_fastboot(conn: ConnectionStatus, model: &str) -> bool {
     matches!(
         conn,
         ConnectionStatus::Adb | ConnectionStatus::AdbRecovery | ConnectionStatus::Fastboot
-    ) && (model.eq_ignore_ascii_case("TB321FU") || model.eq_ignore_ascii_case("TB520FU"))
+    ) && ltbox_core::model::capabilities(model).rollback_floor_via_fastboot
 }
 
 impl App {
@@ -55,7 +57,7 @@ impl App {
     }
 
     pub(crate) fn can_query_rollback(&self) -> bool {
-        !self.device.model.eq_ignore_ascii_case("TB322FC")
+        crate::model::device::is_rollback_protected_model(&self.device.model)
             && self.device_reachable()
             && (!self.rollback_query_needs_loader()
                 || self.adv_wizard.file_path.as_deref().is_some_and(|path| {
@@ -82,7 +84,7 @@ pub(crate) fn detect_arb_run(
 ) -> Result<(), String> {
     use ltbox_device::adb::AdbManager;
     use ltbox_device::fastboot::FastbootDevice;
-    if device_model.eq_ignore_ascii_case("TB322FC") {
+    if !crate::model::device::is_rollback_protected_model(&device_model) {
         return Err(i_not.to_string());
     }
     ltbox_core::live!(log, "[ARB] {}", phases.marker(1));

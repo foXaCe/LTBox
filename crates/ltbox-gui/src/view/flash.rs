@@ -757,11 +757,12 @@ impl App {
             Some(caution.clone()),
             open(ConfirmField::RegionEdit),
         );
-        let rollback_hint_key = if ["TB520FU", "TB321FU"].contains(&self.device.model.as_str()) {
-            "flash_confirm_rb_fastboot_hint"
-        } else {
-            "flash_confirm_rb_edl_hint"
-        };
+        let rollback_hint_key =
+            if ltbox_core::model::capabilities(&self.device.model).rollback_floor_via_fastboot {
+                "flash_confirm_rb_fastboot_hint"
+            } else {
+                "flash_confirm_rb_edl_hint"
+            };
         let rollback_hint = (cfg.modify_rollback == RollbackSetting::Auto)
             .then(|| self.t(rollback_hint_key).to_string());
         let rollback_row = flash_confirm_definition_row(

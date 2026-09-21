@@ -92,7 +92,7 @@ impl App {
         let detect_arb_step0 = matches!(self.adv_wizard.action, Some(AdvAction::DetectArb))
             && self.adv_wizard.step == 0;
         let detect_arb_loader = detect_arb_step0
-            && !self.device.model.eq_ignore_ascii_case("TB322FC")
+            && is_rollback_protected_model(&self.device.model)
             && self.rollback_query_needs_loader();
         let body: Element<'_, Message> = if is_exec && self.adv_wizard.is_image_info() {
             self.adv_image_info_exec_step()
@@ -205,7 +205,7 @@ impl App {
         }
         if action == AdvAction::DetectArb
             && self.adv_wizard.step == 0
-            && !self.device.model.eq_ignore_ascii_case("TB322FC")
+            && is_rollback_protected_model(&self.device.model)
             && self.rollback_query_needs_loader()
         {
             return Some((
@@ -385,7 +385,7 @@ impl App {
 
     /// Present the actual transport requirement; never an empty source step.
     pub(crate) fn adv_wiz_detect_arb_step(&self) -> Element<'_, Message> {
-        if self.device.model.eq_ignore_ascii_case("TB322FC") {
+        if !is_rollback_protected_model(&self.device.model) {
             text(self.t("arb_detect_no_anti_rollback").to_string())
                 .size(theme::text_size::BODY_MEDIUM)
                 .into()

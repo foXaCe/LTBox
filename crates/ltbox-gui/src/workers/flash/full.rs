@@ -1871,9 +1871,7 @@ fn requires_arb_efisp(
 ) -> bool {
     let testkey_firmware = key_class == ltbox_patch::key_map::KeyClass::Testkey
         && firmware_fingerprint.is_some_and(|fp| {
-            ["TB323FU", "TB324ZC"]
-                .iter()
-                .any(|model| fingerprint_token_match(fp, model))
+            ltbox_core::model::fingerprint_capabilities(fp).any(|caps| caps.root_uses_gbl)
         });
     !no_efisp_load && (rollback_requires_arb || testkey_firmware)
 }

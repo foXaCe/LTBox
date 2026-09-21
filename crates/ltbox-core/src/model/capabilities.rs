@@ -63,6 +63,10 @@ pub struct ModelCapabilities {
     pub prc_only: bool,
     /// Supports AVB conversion between firmware regions.
     pub region_avb_conversion: bool,
+    /// The bootloader reports its committed rollback floors through
+    /// `fastboot getvar`. Where it does not, the floor has to be read by
+    /// dumping AVB metadata over EDL, which needs a programmer.
+    pub rollback_floor_via_fastboot: bool,
     /// Rollback protection and editing policy.
     pub rollback: RollbackPolicy,
 }
@@ -80,6 +84,7 @@ const GENERIC: ModelCapabilities = ModelCapabilities {
     dual_usb: false,
     prc_only: false,
     region_avb_conversion: true,
+    rollback_floor_via_fastboot: false,
     rollback: RollbackPolicy::Standard,
 };
 
@@ -91,6 +96,14 @@ const TB320FC: ModelCapabilities = ModelCapabilities {
 };
 const TB321FU: ModelCapabilities = ModelCapabilities {
     dual_usb: true,
+    rollback_floor_via_fastboot: true,
+    ..GENERIC
+};
+/// TB520FU behaves like the generic profile except that its bootloader
+/// reports rollback floors over fastboot, so no EDL loader is needed to read
+/// them.
+const TB520FU: ModelCapabilities = ModelCapabilities {
+    rollback_floor_via_fastboot: true,
     ..GENERIC
 };
 const TB322FC: ModelCapabilities = ModelCapabilities {
@@ -140,7 +153,7 @@ const PROFILES: [(&str, &ModelCapabilities); 11] = [
     (SUPPORTED_MODELS[5], &XIAOXIN_PRO13),
     (SUPPORTED_MODELS[6], &XIAOXIN_PRO13),
     (SUPPORTED_MODELS[7], &XIAOXIN_PRO13),
-    (SUPPORTED_MODELS[8], &GENERIC),
+    (SUPPORTED_MODELS[8], &TB520FU),
     (SUPPORTED_MODELS[9], &GENERIC),
     (LAVIE_TAB_9QHD1_MODEL, &TB320FC),
 ];
@@ -241,9 +254,31 @@ mod tests {
         assert!(capabilities("TB321FU").dual_usb);
         assert!(capabilities("TB322FC").prc_only);
         assert!(!capabilities("TB322FC").rollback.is_protected());
-        for model in ["TB520FU", "TB710FU", "unknown"] {
+        for model in ["TB710FU", "unknown"] {
             assert_eq!(capabilities(model), &GENERIC);
         }
+        // TB520FU is generic apart from reporting its rollback floors over
+        // fastboot, so the dashboard can read them without an EDL loader.
+        assert_eq!(
+            capabilities("TB520FU"),
+            &ModelCapabilities {
+                rollback_floor_via_fastboot: true,
+                ..GENERIC
+            }
+        );
+    }
+
+    #[test]
+    fn only_the_two_fastboot_reporting_models_skip_the_edl_floor_read() {
+        let via_fastboot: Vec<&str> = SUPPORTED_MODELS
+            .into_iter()
+            .chain([LAVIE_TAB_9QHD1_MODEL])
+            .filter(|model| capabilities(model).rollback_floor_via_fastboot)
+            .collect();
+        assert_eq!(via_fastboot, ["TB321FU", "TB520FU"]);
+        // An unrecognised device must fall back to the EDL read rather than
+        // trust a fastboot variable it may not publish.
+        assert!(!capabilities("unknown").rollback_floor_via_fastboot);
     }
 
     #[test]
