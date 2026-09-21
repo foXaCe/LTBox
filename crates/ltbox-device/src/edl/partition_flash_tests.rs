@@ -265,6 +265,7 @@ impl Fixture {
                 },
                 reset_on_drop: false,
             },
+            lun_sectors: std::collections::BTreeMap::new(),
         };
         Self {
             dir,

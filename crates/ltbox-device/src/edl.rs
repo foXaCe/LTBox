@@ -567,6 +567,10 @@ pub struct GptPartitionInfo {
 /// EDL session: owns `QdlDevice`, exposes partition ops.
 pub struct EdlSession {
     dev: QdlDevice<dyn QdlReadWrite>,
+    /// Physical sector count per LUN, memoised for the rawprogram bounds
+    /// check. The disk size does not change while a session is open, so a
+    /// value stays valid even after the XML rewrites the GPT.
+    lun_sectors: std::collections::BTreeMap<u8, Option<u64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -798,7 +802,10 @@ impl EdlSession {
             .map_err(|e| EdlError::Session(format!("Firehose config response failed: {e}")))?;
         ltbox_core::live!(log, "[EDL] {}", tr("log_edl_firehose_configured"));
 
-        Ok(Self { dev })
+        Ok(Self {
+            dev,
+            lun_sectors: std::collections::BTreeMap::new(),
+        })
     }
 
     /// Max plausible GPT metadata span (protective MBR + header + entry
@@ -1336,6 +1343,37 @@ impl EdlSession {
     /// Sectors spanned by a GPT partition (`end` is the inclusive last LBA).
     /// Errors on an inverted range so brick-critical erase/flash refuse bad
     /// geometry rather than silently touching a wrong, tiny span.
+    /// Memoised [`Self::physical_lun_sector_count`] for the rawprogram bounds
+    /// check.
+    ///
+    /// Returns `None` when the LUN has no readable GPT header. A blank or
+    /// corrupted device is precisely when EDL flashing is the only way back,
+    /// so an unreadable capacity skips the bound instead of refusing the
+    /// flash. The probe is attempted once per LUN either way.
+    fn lun_sector_count_for_guard(&mut self, lun: u8, log: &mut Vec<String>) -> Option<u64> {
+        if let Some(cached) = self.lun_sectors.get(&lun) {
+            return *cached;
+        }
+        let probed = self.physical_lun_sector_count(lun, log).ok();
+        self.lun_sectors.insert(lun, probed);
+        probed
+    }
+
+    /// Apply [`ensure_node_within_lun`] when the LUN capacity is knowable.
+    fn guard_node_within_lun(
+        &mut self,
+        ctx: &str,
+        lun: u8,
+        start_sector: &str,
+        num_sectors: usize,
+        log: &mut Vec<String>,
+    ) -> Result<()> {
+        match self.lun_sector_count_for_guard(lun, log) {
+            Some(total) => ensure_node_within_lun(ctx, lun, start_sector, num_sectors, total),
+            None => Ok(()),
+        }
+    }
+
     fn partition_span_sectors(part_name: &str, start: u64, end: u64) -> Result<usize> {
         end.checked_sub(start)
             .and_then(|delta| delta.checked_add(1))
@@ -1871,6 +1909,8 @@ impl EdlSession {
                 .replace("{sectors}", &num_sectors.to_string())
         );
 
+        self.guard_node_within_lun(&ctx, lun, start_sector, num_sectors, log)?;
+
         // Publish only when the integer percentage changes so the process-wide
         // slot is not locked/allocated on every Firehose chunk.
         let transfer_bytes =
@@ -1904,6 +1944,8 @@ impl EdlSession {
         require_destructive_coords(node, ctx)?;
         let lun: u8 = parse_xml_attr(node, "physical_partition_number", 0u8, ctx)?;
         let start_sector = node.attribute("start_sector").unwrap_or("0");
+
+        self.guard_node_within_lun(ctx, lun, start_sector, num_sectors, log)?;
 
         // Named EFISP erases use the same zero-program policy as the
         // partition wizard and the conditional full-firmware cleanup.
@@ -2016,6 +2058,51 @@ fn require_destructive_coords(node: &roxmltree::Node<'_, '_>, context: &str) -> 
         if node.attribute(attr).is_none() {
             return Err(EdlError::Session(format!(
                 "{context}: missing required {attr} on a destructive node"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Bound one destructive rawprogram node against the target LUN's capacity.
+///
+/// `<program>` and `<erase>` take `num_partition_sectors` and `start_sector`
+/// verbatim from firmware XML, which is untrusted input: a corrupt or
+/// mismatched package can name a sector count far larger than the partition
+/// it labels. qdl zero-pads a short image up to `num_partition_sectors`, so
+/// an inflated count does not merely fail — it writes zeros over whatever
+/// follows. Unlike [`PartitionFlash`], which resolves the GPT span, the
+/// rawprogram path has no span to check against while the same XML is
+/// rewriting the GPT. The disk size is the one bound that stays valid
+/// throughout, so enforce that much.
+///
+/// `start_sector` is handed to the programmer verbatim and may be a
+/// device-side expression such as `NUM_DISK_SECTORS-33.`, which only the
+/// programmer can resolve. A plain decimal start is checked end to end; an
+/// expression still has its sector count checked on its own.
+fn ensure_node_within_lun(
+    ctx: &str,
+    lun: u8,
+    start_sector: &str,
+    num_sectors: usize,
+    lun_sectors: u64,
+) -> Result<()> {
+    let num = u64::try_from(num_sectors)
+        .map_err(|_| EdlError::Session(format!("{ctx}: num_partition_sectors exceeds u64")))?;
+    if num > lun_sectors {
+        return Err(EdlError::Session(format!(
+            "{ctx}: {num} sectors requested but LUN {lun} holds only {lun_sectors}"
+        )));
+    }
+    if let Ok(start) = start_sector.trim().parse::<u64>() {
+        let end = start.checked_add(num).ok_or_else(|| {
+            EdlError::Session(format!(
+                "{ctx}: start_sector {start} + {num} sectors overflows u64"
+            ))
+        })?;
+        if end > lun_sectors {
+            return Err(EdlError::Session(format!(
+                "{ctx}: sectors {start}..{end} run past the end of LUN {lun} ({lun_sectors} sectors)"
             )));
         }
     }
@@ -2339,6 +2426,49 @@ mod tests {
         assert!(msg.contains("LUN 2"), "{msg}");
         assert!(msg.contains("101"), "{msg}");
         assert!(msg.contains("100"), "{msg}");
+    }
+
+    #[test]
+    fn node_within_lun_accepts_a_write_that_fits() {
+        assert!(ensure_node_within_lun("<program>", 0, "34", 100, 1024).is_ok());
+        // Exactly filling the disk is legal.
+        assert!(ensure_node_within_lun("<program>", 0, "0", 1024, 1024).is_ok());
+    }
+
+    #[test]
+    fn node_within_lun_rejects_a_count_larger_than_the_disk() {
+        let err = ensure_node_within_lun("<program>", 4, "0", 2048, 1024).unwrap_err();
+        assert!(
+            err.to_string().contains("LUN 4 holds only 1024"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn node_within_lun_rejects_a_write_running_past_the_end() {
+        let err = ensure_node_within_lun("<program>", 0, "1000", 100, 1024).unwrap_err();
+        assert!(
+            err.to_string().contains("run past the end"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn node_within_lun_rejects_start_plus_count_overflow() {
+        let err =
+            ensure_node_within_lun("<program>", 0, &u64::MAX.to_string(), 8, u64::MAX).unwrap_err();
+        assert!(
+            err.to_string().contains("overflows u64"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn node_within_lun_still_bounds_the_count_for_a_device_side_expression() {
+        // `NUM_DISK_SECTORS-33.` is resolved by the programmer, not here, so
+        // only the sector count can be checked — but it still must be.
+        assert!(ensure_node_within_lun("<erase>", 0, "NUM_DISK_SECTORS-33.", 33, 1024).is_ok());
+        assert!(ensure_node_within_lun("<erase>", 0, "NUM_DISK_SECTORS-33.", 4096, 1024).is_err());
     }
 
     #[test]
