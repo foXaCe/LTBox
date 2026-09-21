@@ -494,11 +494,9 @@ impl App {
         }
 
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("root_type_title").to_string(),
             cards.into(),
-            Some((self.t("root_type_title").to_string(), vec![])),
         )
     }
 
@@ -545,20 +543,12 @@ impl App {
             cards = cards.push(card(p, self.root.provider == Some(p)));
         }
         wizard_selection_step(
-            size_class,
             content_width,
             tr_args!(
                 "root_provider_title_tmpl",
                 family = self.t(family.label_key())
             ),
             cards.into(),
-            Some((
-                tr_args!(
-                    "root_provider_title_tmpl",
-                    family = self.t(family.label_key())
-                ),
-                vec![],
-            )),
         )
     }
 
@@ -666,7 +656,6 @@ impl App {
         };
         let cards = column![lkm_card, gki_card].spacing(2.0).width(Length::Fill);
         wizard_selection_step(
-            size_class,
             content_width,
             tr_args!(
                 "root_mode_title_tmpl",
@@ -677,17 +666,6 @@ impl App {
                     .unwrap_or("?")
             ),
             cards.into(),
-            Some((
-                tr_args!(
-                    "root_mode_title_tmpl",
-                    family = self
-                        .root
-                        .family
-                        .map(|family| self.t(family.label_key()))
-                        .unwrap_or("?")
-                ),
-                vec![],
-            )),
         )
     }
 
@@ -719,11 +697,9 @@ impl App {
 
         let cards = column![lite, pro].spacing(2.0).width(Length::Fill);
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("root_skroot_flavor_title").to_string(),
             cards.into(),
-            Some((self.t("root_skroot_flavor_title").to_string(), vec![])),
         )
     }
 
@@ -765,11 +741,9 @@ impl App {
         let cards = column![mk(VerChoice::Stable), mk(VerChoice::Nightly)].spacing(2.0);
 
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("root_version_title").to_string(),
             cards.width(Length::Fill).into(),
-            Some((self.t("root_version_title").to_string(), vec![])),
         )
     }
 
@@ -837,11 +811,9 @@ impl App {
         .width(Length::Fill)
         .align_x(iced::Alignment::Center);
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("root_source_title").to_string(),
             cards.into(),
-            Some((self.t("root_source_title").to_string(), vec![])),
         )
     }
 

@@ -17,9 +17,6 @@ pub(crate) const WIZARD_LIST_HORIZONTAL_PADDING: f32 = 16.0;
 pub(crate) const WIZARD_LIST_TEXT_GAP: f32 = 2.0;
 pub(crate) const WIZARD_LIST_ICON_GAP: f32 = 12.0;
 pub(crate) const WIZARD_STEP_HORIZONTAL_PADDING: f32 = 28.0;
-pub(crate) const WIZARD_HELP_PANEL_WIDTH: f32 = 280.0;
-pub(crate) const WIZARD_HELP_PANEL_MIN_WIDTH: f32 = 200.0;
-pub(crate) const WIZARD_HELP_PANEL_GAP: f32 = 22.0;
 
 pub(crate) const SETTINGS_PICK_LIST_WIDTH: f32 = 176.0;
 pub(crate) const SETTINGS_PICK_LIST_TEXT_SIZE: f32 = 14.0;

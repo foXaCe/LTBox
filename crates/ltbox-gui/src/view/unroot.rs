@@ -156,11 +156,9 @@ impl App {
         };
         let cards = column![lkm_card, gki_card].spacing(8.0).width(Length::Fill);
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("unroot_method_title").to_string(),
             cards.into(),
-            Some((self.t("unroot_method_title").to_string(), vec![])),
         )
     }
 

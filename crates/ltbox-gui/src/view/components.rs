@@ -920,14 +920,12 @@ pub(crate) fn lucide_icon(
         .into()
 }
 
-/// Lay out wizard choices as one compact column or as an Expanded two-pane
-/// surface. Help copy is always existing localized copy supplied by the step.
+/// Keep wizard choices in one centered column at every window width.
+/// The existing desktop width cap leaves extra space as margins, not empty panes.
 pub(crate) fn wizard_selection_step<'a>(
-    size_class: WindowSizeClass,
     content_width: f32,
     step_title: String,
     options: Element<'a, Message>,
-    help: Option<(String, Vec<String>)>,
 ) -> Element<'a, Message> {
     let heading = text(step_title)
         .size(theme::text_size::TITLE_MEDIUM)
@@ -936,84 +934,12 @@ pub(crate) fn wizard_selection_step<'a>(
         .width(Length::Fill)
         .wrapping(iced::widget::text::Wrapping::WordOrGlyph);
 
-    if size_class == WindowSizeClass::Expanded
-        && let Some((help_title, help_paragraphs)) = help
-    {
-        let mut copy = column![
-            text(help_title)
-                .size(theme::text_size::BODY_MEDIUM)
-                .font(theme::emphasis::medium())
-                .style(on_surface_style)
-                .width(Length::Fill)
-                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-        ]
-        .spacing(10)
-        .width(Length::Fill);
-        for paragraph in help_paragraphs {
-            if !paragraph.trim().is_empty() {
-                copy = copy.push(
-                    text(paragraph)
-                        .size(theme::text_size::BODY_SMALL)
-                        .style(muted_style)
-                        .width(Length::Fill)
-                        .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-                );
-            }
-        }
-
-        // Fill, not centred-inside-Fill. Centring the 720 column in its own
-        // half left the options stranded mid-pane while the help panel clung
-        // to the far edge; the whole assembly is centred below instead.
-        let main = column![heading, options]
-            .spacing(16)
-            .width(Length::Fill)
-            .height(Length::Fill);
-        let help_width =
-            (content_width * 0.25).clamp(WIZARD_HELP_PANEL_MIN_WIDTH, WIZARD_HELP_PANEL_WIDTH);
-        let help_panel = container(copy)
-            .width(Length::Fixed(help_width))
-            .height(Length::Fill)
-            .padding(iced::Padding {
-                top: 4.0,
-                right: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-            });
-        // M3 caps content and centres it rather than stretching: past the cap
-        // a wider window buys margin, not layout. Capping the pair together
-        // keeps the help panel next to the options it explains instead of
-        // pinning it to the window edge.
-        let assembly_width = WIZARD_LIST_MAX_WIDTH + WIZARD_HELP_PANEL_GAP + 1.0 + help_width;
-        // Fixed, not `max_width`: the cap did not survive this nesting, and
-        // the block silently stretched to the window. `content_width` is
-        // already known here, so the width is computed rather than negotiated.
-        let available = (content_width - 2.0 * WIZARD_STEP_HORIZONTAL_PADDING).max(1.0);
-        let block_width = assembly_width.min(available);
-        let block = container(
-            row![
-                main,
-                widget::rule::vertical(1).style(shell_rule_style),
-                help_panel,
-            ]
-            .spacing(WIZARD_HELP_PANEL_GAP)
-            .width(Length::Fill)
-            .height(Length::Fill),
-        )
-        .width(Length::Fixed(block_width))
-        .height(Length::Fill);
-        return container(block)
-            .padding([20.0, WIZARD_STEP_HORIZONTAL_PADDING])
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(iced::alignment::Horizontal::Center)
-            .into();
-    }
-
     container(
         container(column![heading, options].spacing(16).width(Length::Fill))
             .padding([20.0, WIZARD_STEP_HORIZONTAL_PADDING])
-            .width(Length::Fill)
-            .max_width(WIZARD_LIST_MAX_WIDTH),
+            .width(Length::Fixed(
+                content_width.clamp(1.0, WIZARD_LIST_MAX_WIDTH),
+            )),
     )
     .width(Length::Fill)
     .height(Length::Fill)

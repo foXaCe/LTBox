@@ -889,7 +889,7 @@ pub(crate) fn device_portrait(model: &str) -> DevicePortrait {
     }
 }
 
-/// Product-specific content-width threshold for the two-pane wizard.
+/// Product-specific content-width threshold for expanded navigation.
 /// This is measured after navigation, not an M3 window-size breakpoint.
 const EXPANDED_CONTENT_WIDTH: f32 = 1000.0;
 
@@ -981,8 +981,7 @@ impl App {
     }
 
     /// Width cap for a single-column wizard list. Selection rows keep the same
-    /// desktop density in both window classes; only their surrounding layout
-    /// changes between one and two panes.
+    /// desktop density and centered single-pane layout in both window classes.
     pub(crate) fn wizard_list_max_width(&self, base: f32) -> f32 {
         base
     }

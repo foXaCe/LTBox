@@ -205,11 +205,9 @@ impl App {
             metrics,
         ));
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("sysupdate_action_title").to_string(),
             cards.into(),
-            Some((self.t("sysupdate_action_title").to_string(), vec![])),
         )
     }
 

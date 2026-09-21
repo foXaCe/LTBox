@@ -334,17 +334,9 @@ impl App {
             );
         }
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("flash_region_title").to_string(),
             cards.into(),
-            Some((
-                self.t("flash_region_help_title").to_string(),
-                vec![
-                    self.t("flash_region_help_body").to_string(),
-                    self.t("flash_region_help_hardware").to_string(),
-                ],
-            )),
         )
     }
 
@@ -409,11 +401,9 @@ impl App {
         .spacing(2.0)
         .width(Length::Fill);
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("flash_target_title").to_string(),
             cards.into(),
-            Some((String::new(), vec![])),
         )
     }
 
@@ -467,11 +457,9 @@ impl App {
             );
         }
         wizard_selection_step(
-            size_class,
             content_width,
             self.t("flash_data_title").to_string(),
             cards.into(),
-            Some((String::new(), vec![])),
         )
     }
 
