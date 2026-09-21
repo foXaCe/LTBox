@@ -86,6 +86,16 @@ pub fn parse(xml: &str) -> Result<Vec<SaharaImage>> {
             .attribute("image_path")
             .ok_or_else(|| LtboxError::Other("Sahara XML: <image> missing image_path".to_string()))?
             .to_string();
+        // Each id is one slot in the upload table; a repeat would silently
+        // replace the earlier file, so a malformed manifest must not load.
+        if out
+            .iter()
+            .any(|seen: &SaharaImage| seen.image_id == image_id)
+        {
+            return Err(LtboxError::Other(format!(
+                "Sahara XML: duplicate image_id {image_id}"
+            )));
+        }
         out.push(SaharaImage {
             image_id,
             image_path,
@@ -97,6 +107,33 @@ pub fn parse(xml: &str) -> Result<Vec<SaharaImage>> {
         ));
     }
     Ok(out)
+}
+
+/// Image files the manifest at `xml_path` references but that are **not**
+/// present beside it, in document order. An empty vector means every
+/// referenced payload resolves.
+///
+/// Only stats the files — nothing is read, decrypted or written — so this is
+/// cheap enough for a file-picker gate. A manifest that cannot be read or
+/// parsed is an `Err`, not "nothing missing".
+///
+/// Paths that escape the manifest's directory (`..`, absolute) fail through
+/// [`crate::safe_path::safe_join`] exactly as they would at load time.
+pub fn missing_image_files(xml_path: &Path) -> Result<Vec<PathBuf>> {
+    let xml_body = crate::xml::read(xml_path)
+        .map_err(|e| LtboxError::Other(format!("Sahara XML read: {e}")))?;
+    let entries = parse(&xml_body)?;
+    let parent = xml_path
+        .parent()
+        .ok_or_else(|| LtboxError::Other("Sahara XML has no parent directory".to_string()))?;
+    let mut missing = Vec::new();
+    for entry in &entries {
+        let img_path = crate::safe_path::safe_join(parent, &entry.image_path)?;
+        if !img_path.is_file() {
+            missing.push(img_path);
+        }
+    }
+    Ok(missing)
 }
 
 /// Slot array sized to `(max image-id + 1)` with `Some(bytes)` at every
@@ -178,6 +215,53 @@ mod tests {
     fn parse_rejects_empty_images() {
         let xml = r#"<sahara_config><chipset>x</chipset><images/></sahara_config>"#;
         assert!(parse(xml).is_err());
+    }
+
+    #[test]
+    fn parse_rejects_duplicate_image_ids() {
+        let xml = r#"<sahara_config><images>
+            <image image_id="13" image_path="a.elf"/>
+            <image image_id="21" image_path="b.elf"/>
+            <image image_id="13" image_path="c.elf"/>
+        </images></sahara_config>"#;
+        let error = parse(xml).unwrap_err().to_string();
+        assert!(error.contains("duplicate image_id 13"), "{error}");
+    }
+
+    fn write_manifest(dir: &Path, names: &[&str]) -> PathBuf {
+        let images: String = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| format!("<image image_id=\"{}\" image_path=\"{n}\"/>", i + 13))
+            .collect();
+        let path = dir.join(MANIFEST_FILENAME);
+        std::fs::write(
+            &path,
+            format!("<sahara_config><images>{images}</images></sahara_config>"),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn missing_image_files_reports_only_absent_payloads() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = write_manifest(dir.path(), &["prog_firehose_ddr.elf", "xbl_sc.elf"]);
+        std::fs::write(dir.path().join("prog_firehose_ddr.elf"), b"elf").unwrap();
+
+        let missing = missing_image_files(&manifest).unwrap();
+        assert_eq!(missing, vec![dir.path().join("xbl_sc.elf")]);
+
+        std::fs::write(dir.path().join("xbl_sc.elf"), b"elf").unwrap();
+        assert!(missing_image_files(&manifest).unwrap().is_empty());
+    }
+
+    #[test]
+    fn missing_image_files_errors_on_unparseable_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join(MANIFEST_FILENAME);
+        std::fs::write(&manifest, b"not xml at all").unwrap();
+        assert!(missing_image_files(&manifest).is_err());
     }
 
     #[test]

@@ -142,6 +142,82 @@ fn dir_has_rawprogram_pack(dir: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Bring a picked Sahara manifest to its plaintext form, decrypting an
+/// encrypted `.x` pick to the sibling `qsahara_device_programmer.xml`
+/// **at pick time** rather than deferring to `EdlSession::open`.
+///
+/// Decrypting here is what makes the completeness gate below possible: the
+/// `<image>` list only becomes readable once the container is open, so a
+/// wizard cannot tell a complete loader from a half-extracted one until this
+/// has run. Non-manifest picks (`.melf` and friends) pass through untouched.
+///
+/// Returns the path to inspect/flash, or a localized error string.
+pub(crate) fn decrypt_manifest_pick(
+    path: &std::path::Path,
+) -> std::result::Result<std::path::PathBuf, String> {
+    if !ltbox_core::sahara_xml::is_encrypted_manifest_filename(path) {
+        return Ok(path.to_path_buf());
+    }
+    let out = path.with_file_name(ltbox_core::sahara_xml::MANIFEST_FILENAME);
+    ltbox_core::crypto::decrypt_file(path, &out).map_err(|e| {
+        ltbox_core::tr_args!(
+            "err_decrypt_file_failed",
+            path = path.display(),
+            error = e.to_string()
+        )
+    })?;
+    Ok(out)
+}
+
+/// Reject a Sahara manifest whose referenced payloads are not all sitting
+/// beside it.
+///
+/// A manifest names 8-ish ELF/MBN images by relative path; if the user picked
+/// one out of a partially-extracted firmware pack, every one of those reads
+/// fails inside `EdlSession::open` — i.e. after the device has already been
+/// forced into EDL. Checking at pick time keeps that failure in the file
+/// dialog, where it is recoverable.
+///
+/// `path` must already be plaintext (see [`decrypt_manifest_pick`]). Anything
+/// that is not a manifest is accepted unchanged.
+pub(crate) fn ensure_manifest_images_present(
+    path: &std::path::Path,
+) -> std::result::Result<(), String> {
+    if !ltbox_core::sahara_xml::is_manifest_filename(path) {
+        return Ok(());
+    }
+    let missing = ltbox_core::sahara_xml::missing_image_files(path).map_err(|e| {
+        ltbox_core::tr_args!("err_loader_manifest_unreadable", error = e.to_string())
+    })?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let names = missing
+        .iter()
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| p.display().to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(ltbox_core::tr_args!(
+        "err_loader_manifest_images_missing",
+        count = missing.len(),
+        files = names
+    ))
+}
+
+/// [`decrypt_manifest_pick`] + [`ensure_manifest_images_present`]: the whole
+/// pick-time manifest gate, returning the path a wizard should store.
+pub(crate) fn prepare_manifest_pick(
+    path: &std::path::Path,
+) -> std::result::Result<std::path::PathBuf, String> {
+    let resolved = decrypt_manifest_pick(path)?;
+    ensure_manifest_images_present(&resolved)?;
+    Ok(resolved)
+}
+
 pub(crate) fn is_loader_file(path: &std::path::Path) -> bool {
     // `.xml` covers TB323FU's `qsahara_device_programmer.xml` multi-
     // image manifest. `EdlSession::open` branches on the manifest
@@ -188,11 +264,92 @@ pub(crate) fn loader_ext_fits_model(uses_efisp_gbl_route: bool, path: &std::path
 
 #[cfg(test)]
 mod tests {
-    use super::{find_firmware_loader, loader_ext_fits_model, redirect_to_image_subdir};
+    use super::{
+        ensure_manifest_images_present, find_firmware_loader, loader_ext_fits_model,
+        prepare_manifest_pick, redirect_to_image_subdir,
+    };
     use std::path::Path;
 
     fn touch(dir: &Path, name: &str) {
         std::fs::write(dir.join(name), b"x").unwrap();
+    }
+
+    /// Error strings come from the locale tables; without a translator
+    /// installed `tr` echoes the key, and every message assertion below
+    /// would pass vacuously.
+    fn with_english_messages() {
+        crate::translations::install_core_translator(crate::Language::En);
+    }
+
+    fn write_manifest(dir: &Path, names: &[&str]) -> std::path::PathBuf {
+        let images: String = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| format!("<image image_id=\"{}\" image_path=\"{n}\"/>", i + 13))
+            .collect();
+        let path = dir.join(ltbox_core::sahara_xml::MANIFEST_FILENAME);
+        std::fs::write(
+            &path,
+            format!("<sahara_config><images>{images}</images></sahara_config>"),
+        )
+        .unwrap();
+        path
+    }
+
+    #[test]
+    fn manifest_pick_requires_every_referenced_image() {
+        with_english_messages();
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = write_manifest(dir.path(), &["prog_firehose_ddr.elf", "xbl_sc.elf"]);
+        touch(dir.path(), "prog_firehose_ddr.elf");
+
+        // One payload short → rejected, and the message names the absentee so
+        // the user knows what to copy in.
+        let err = ensure_manifest_images_present(&manifest).expect_err("incomplete pack");
+        assert!(err.contains("xbl_sc.elf"), "{err}");
+        assert!(!err.contains("prog_firehose_ddr.elf"), "{err}");
+
+        touch(dir.path(), "xbl_sc.elf");
+        assert!(ensure_manifest_images_present(&manifest).is_ok());
+        assert_eq!(prepare_manifest_pick(&manifest).unwrap(), manifest);
+    }
+
+    #[test]
+    fn manifest_pick_rejects_unparseable_manifest() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join(ltbox_core::sahara_xml::MANIFEST_FILENAME);
+        std::fs::write(&manifest, b"<not-a-sahara-config/>").unwrap();
+        assert!(prepare_manifest_pick(&manifest).is_err());
+    }
+
+    #[test]
+    fn manifest_pick_leaves_single_blob_loaders_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "xbl_s_devprg_ns.melf");
+        let melf = dir.path().join("xbl_s_devprg_ns.melf");
+        assert_eq!(prepare_manifest_pick(&melf).unwrap(), melf);
+    }
+
+    #[test]
+    fn encrypted_manifest_pick_decrypts_before_judging_it() {
+        // A `.x` pick must be opened at pick time — the `<image>` list it
+        // guards is what the completeness gate reads. With a container that
+        // cannot be decrypted, the failure therefore has to be the decrypt
+        // one, not "manifest is fine" and not a deferred error at flash time.
+        // (The decrypt round trip itself is covered in `ltbox_core::crypto`.)
+        with_english_messages();
+        let dir = tempfile::tempdir().unwrap();
+        let encrypted = dir
+            .path()
+            .join(ltbox_core::sahara_xml::ENCRYPTED_MANIFEST_FILENAME);
+        std::fs::write(&encrypted, vec![0u8; 64]).unwrap();
+        let err = prepare_manifest_pick(&encrypted).expect_err("undecryptable container");
+        assert!(err.contains(&encrypted.display().to_string()), "{err}");
+        assert!(
+            !dir.path()
+                .join(ltbox_core::sahara_xml::MANIFEST_FILENAME)
+                .exists()
+        );
     }
 
     #[test]

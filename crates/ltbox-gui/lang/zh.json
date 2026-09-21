@@ -241,6 +241,8 @@
   "err_ksu_artifact_hash_mismatch": "KernelSU 构件“{artifact}”的 SHA-256 不匹配（期望 {expected}，实际 {actual}）；已删除下载的 ZIP。",
   "err_ksu_lkm_kernel_version_required": "KernelSU LKM 需要在进入 EDL 模式前获得内核版本；请手动输入后重试。",
   "err_ksu_stable_lkm_sources_exhausted": "已同时尝试发行版 {tag} 的发行资源和工作流构件，但未找到适用于内核 {kver} 的 KernelSU LKM。工作流构件可能已过期（通常 90 日后）。详细信息：{details}",
+  "err_loader_manifest_images_missing": "加载器清单引用的 {count} 个文件不在同一文件夹中。请将缺少的文件放到清单所在文件夹，或选择其他加载器：{files}",
+  "err_loader_manifest_unreadable": "无法读取加载器清单：{error}",
   "err_loader_missing": "未找到加载器文件：{path}",
   "err_loader_not_found_in_path": "在 {path} 中未找到 xbl_s_devprg_ns.melf",
   "err_loader_not_selected": "未选择加载器文件。",

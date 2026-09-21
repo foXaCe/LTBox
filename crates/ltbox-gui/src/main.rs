@@ -2826,14 +2826,21 @@ impl App {
         // when one exists so the common mis-selection just works.
         let path = redirect_str(path);
         let dir = std::path::Path::new(&path);
-        let has_loader = find_firmware_loader(dir).is_some();
-        self.flash.loader_required = !has_loader;
+        // The folder's own loader counts only when it is actually usable: a
+        // Sahara manifest is decrypted (if `.x`) and checked for its images
+        // right here, so a half-extracted pack demands an external loader on
+        // the folder step instead of failing once the device is in EDL.
+        let folder_loader = find_firmware_loader(dir);
+        let folder_loader_error = folder_loader
+            .as_deref()
+            .and_then(|loader| prepare_manifest_pick(loader).err());
+        self.flash.loader_required = folder_loader.is_none() || folder_loader_error.is_some();
         self.flash.loader_override = if self.flash.loader_required {
             self.resolved_default_loader()
         } else {
             None
         };
-        self.flash.loader_error = None;
+        self.flash.loader_error = folder_loader_error;
         self.flash.firmware_folder = Some(path.clone());
         self.flash.set_firmware_rollback_indices(&path);
         if was_after_folder || (self.flash.loader_required && self.flash.loader_override.is_none())
@@ -2945,14 +2952,44 @@ impl App {
     /// default had been configured — better than auto-advancing past a
     /// step with a missing file and surfacing the error later).
     fn resolved_default_loader(&self) -> Option<String> {
-        let p = self.default_loader_path.as_deref()?;
+        self.resolve_default_loader().ok()?
+    }
+
+    /// [`Self::resolved_default_loader`] with the rejection reason kept.
+    ///
+    /// `Ok(None)` — no default configured, or the saved file is gone /
+    /// wrong-extension for the model (both already have their own notices).
+    /// `Err(msg)` — the default *is* the right kind of loader but is unusable
+    /// as one, currently only a manifest whose images are not beside it. That
+    /// message is worth showing, because nothing else about the wizard hints
+    /// at why the configured default was skipped.
+    fn resolve_default_loader(&self) -> std::result::Result<Option<String>, String> {
+        let Some(p) = self.default_loader_path.as_deref() else {
+            return Ok(None);
+        };
+        let path = std::path::Path::new(p);
         // Bypass the default when its extension doesn't fit the connected model
         // (TB323FU needs the .xml/.x manifest, others a .melf) so the wizard shows
         // its loader picker instead of auto-advancing with the wrong loader.
-        if std::path::Path::new(p).is_file() && self.loader_fits_model(std::path::Path::new(p)) {
-            Some(p.to_string())
-        } else {
-            None
+        if !path.is_file() || !self.loader_fits_model(path) {
+            return Ok(None);
+        }
+        // Same pick-time gate the picker applies: decrypt a `.x` default and
+        // refuse a manifest whose payloads are missing, rather than
+        // auto-advancing every wizard onto a loader that cannot load.
+        prepare_manifest_pick(path).map(|p| Some(p.to_string_lossy().into_owned()))
+    }
+
+    /// Notice to show on a wizard's loader step when the configured default
+    /// loader was bypassed: the extension mismatch, or the manifest's own
+    /// rejection reason. `None` when there is nothing to explain.
+    fn default_loader_notice(&self) -> Option<String> {
+        self.default_loader_path.as_ref()?;
+        match self.resolve_default_loader() {
+            Ok(Some(_)) => None,
+            Ok(None) => (!self.default_loader_fits_model())
+                .then(|| ltbox_core::i18n::tr("loader_default_ext_unsupported")),
+            Err(message) => Some(message),
         }
     }
 
@@ -2971,8 +3008,7 @@ impl App {
             // Default set but its extension doesn't fit the connected model
             // (resolved to None): surface the open wizard's loader picker with a
             // notice so it doesn't look like a bug. `loader_step_card` renders it.
-            if self.default_loader_path.is_some() && !self.default_loader_fits_model() {
-                let notice = ltbox_core::i18n::tr("loader_default_ext_unsupported");
+            if let Some(notice) = self.default_loader_notice() {
                 if self.advanced_wizard_open.is_flash_parts() {
                     self.flash_parts.scan_error = Some(notice);
                 } else if self.advanced_wizard_open.is_dump_parts() {
@@ -3009,10 +3045,7 @@ impl App {
     /// loader, preserving the former Advanced-tile entry behavior.
     fn apply_default_loader_to_konabess(&mut self) {
         let Some(path) = self.resolved_default_loader() else {
-            if self.default_loader_path.is_some() && !self.default_loader_fits_model() {
-                self.konabess.loader_error =
-                    Some(ltbox_core::i18n::tr("loader_default_ext_unsupported"));
-            }
+            self.konabess.loader_error = self.default_loader_notice();
             return;
         };
         match self.resolve_loader_input(&path) {
@@ -3041,9 +3074,14 @@ impl App {
             self.error_msg = Some(msg);
             return Err(());
         }
-        // A `.x` loader (encrypted manifest) passes through as-is here;
-        // `EdlSession::open` decrypts it to the sibling `.xml` at load time.
-        Ok(p.to_string())
+        // Backstop for loaders that reached a wizard without passing the
+        // picker's gate (recents, restored state): decrypt a `.x` manifest and
+        // require its images, so a run never gets as far as forcing the device
+        // into EDL on a loader that cannot load.
+        let prepared = prepare_manifest_pick(pb).map_err(|msg| {
+            self.error_msg = Some(msg);
+        })?;
+        Ok(prepared.to_string_lossy().into_owned())
     }
 
     fn persist_settings(&self) {
@@ -3152,7 +3190,8 @@ impl App {
                 && let Some(parent) = path.parent()
             {
                 if let Some(manifest) = resolve_sahara_manifest(parent) {
-                    return Ok(manifest.to_string_lossy().to_string());
+                    return prepare_manifest_pick(&manifest)
+                        .map(|p| p.to_string_lossy().to_string());
                 }
                 return Err(tr_args!(
                     "err_efisp_loader_manifest_required",
@@ -3160,11 +3199,16 @@ impl App {
                     path = path.display()
                 ));
             }
-            // Encrypted multi-image manifest picked directly
-            // (`qsahara_device_programmer.x`) passes through as-is;
-            // `EdlSession::open` decrypts it to the sibling `.xml`.
-            if ltbox_core::sahara_xml::is_encrypted_manifest_filename(path) {
-                return Ok(selected_path.to_string());
+            // Multi-image manifest picked directly, in either form. The
+            // encrypted `.x` is decrypted to its sibling `.xml` here rather
+            // than in `EdlSession::open`, because the completeness check
+            // below needs the `<image>` list while the user is still in the
+            // picker — a manifest missing its payloads must not reach a
+            // wizard's Next button.
+            if ltbox_core::sahara_xml::is_encrypted_manifest_filename(path)
+                || ltbox_core::sahara_xml::is_manifest_filename(path)
+            {
+                return prepare_manifest_pick(path).map(|p| p.to_string_lossy().to_string());
             }
             if is_loader_file(path) {
                 return Ok(selected_path.to_string());
@@ -3814,6 +3858,71 @@ mod tests {
         assert!(app.dump_parts.loader_error.is_some());
     }
 
+    /// Manifest + the subset of its payloads that should exist on disk.
+    fn manifest_pack(dir: &std::path::Path, present: &[&str]) -> String {
+        std::fs::write(
+            dir.join(ltbox_core::sahara_xml::MANIFEST_FILENAME),
+            br#"<sahara_config><images>
+               <image image_id="13" image_path="prog_firehose_ddr.elf"/>
+               <image image_id="21" image_path="xbl_sc.elf"/>
+            </images></sahara_config>"#,
+        )
+        .unwrap();
+        for name in present {
+            std::fs::write(dir.join(name), b"img").unwrap();
+        }
+        dir.join(ltbox_core::sahara_xml::MANIFEST_FILENAME)
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn a_manifest_missing_its_images_cannot_leave_the_loader_step() {
+        // The whole point of checking at pick time: half an extracted pack
+        // used to sail through the wizard and only fail once the device had
+        // already been pushed into EDL.
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = manifest_pack(dir.path(), &["prog_firehose_ddr.elf"]);
+
+        let mut app = App::default();
+        let _ = app.update_dump_phys(DumpPhysMsg::DumpPhysLoaderChosen(Some(manifest.clone())));
+        assert!(app.dump_phys.loader_path.is_none());
+        let rejected = app.dump_phys.loader_error.clone().expect("rejected");
+        assert!(rejected.contains("xbl_sc.elf"), "{rejected}");
+        assert!(!app.dump_phys.can_next());
+
+        // Drop the missing payload in and the same pick is accepted.
+        std::fs::write(dir.path().join("xbl_sc.elf"), b"img").unwrap();
+        let _ = app.update_dump_phys(DumpPhysMsg::DumpPhysLoaderChosen(Some(manifest.clone())));
+        assert_eq!(
+            app.dump_phys.loader_path.as_deref(),
+            Some(manifest.as_str())
+        );
+        assert!(app.dump_phys.loader_error.is_none());
+        assert!(app.dump_phys.can_next());
+    }
+
+    #[test]
+    fn a_firmware_folder_with_an_incomplete_manifest_demands_its_own_loader() {
+        // The flash wizard takes the loader from the firmware folder; when
+        // that loader is an incomplete manifest the folder step has to ask
+        // for one rather than treat the folder as self-sufficient.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("rawprogram0.xml"), b"<data/>").unwrap();
+        manifest_pack(dir.path(), &["prog_firehose_ddr.elf"]);
+
+        let mut app = App::default();
+        app.set_flash_firmware_folder(dir.path().to_string_lossy().into_owned());
+        assert!(app.flash.loader_required);
+        assert!(app.flash.loader_error.is_some());
+        assert!(!app.flash.can_next());
+
+        std::fs::write(dir.path().join("xbl_sc.elf"), b"img").unwrap();
+        app.set_flash_firmware_folder(dir.path().to_string_lossy().into_owned());
+        assert!(!app.flash.loader_required);
+        assert!(app.flash.loader_error.is_none());
+    }
+
     #[test]
     fn root_and_unroot_loader_steps_upgrade_a_tb323fu_melf_to_the_manifest() {
         // Every other wizard resolved the pick through `resolve_loader_input`;
@@ -3822,8 +3931,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let melf = dir.path().join("xbl_s_devprg_ns.melf");
         std::fs::write(&melf, b"loader").unwrap();
+        // A real manifest with its one payload beside it: the upgrade is only
+        // allowed to land on a loader that would actually load.
         let manifest = dir.path().join(ltbox_core::sahara_xml::MANIFEST_FILENAME);
-        std::fs::write(&manifest, b"<data/>").unwrap();
+        std::fs::write(
+            &manifest,
+            br#"<sahara_config><images>
+               <image image_id="13" image_path="prog_firehose_ddr.elf"/>
+            </images></sahara_config>"#,
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("prog_firehose_ddr.elf"), b"elf").unwrap();
         let picked = melf.to_string_lossy().to_string();
         let want = manifest.to_string_lossy().to_string();
 

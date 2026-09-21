@@ -241,6 +241,8 @@
   "err_ksu_artifact_hash_mismatch": "KernelSU artifact '{artifact}' SHA-256 mismatch (expected {expected}, got {actual}); the downloaded ZIP was removed.",
   "err_ksu_lkm_kernel_version_required": "KernelSU LKM requires a kernel version before entering EDL mode; enter it manually and retry.",
   "err_ksu_stable_lkm_sources_exhausted": "No KernelSU LKM was found after trying both release assets and workflow artifacts for release {tag} and kernel {kver}. Workflow artifacts may have expired (typically after about 90 days). Details: {details}",
+  "err_loader_manifest_images_missing": "The loader manifest references {count} file(s) that are not in its folder. Put them next to the manifest, or pick another loader: {files}",
+  "err_loader_manifest_unreadable": "The loader manifest could not be read: {error}",
   "err_loader_missing": "Loader file not found at {path}",
   "err_loader_not_found_in_path": "xbl_s_devprg_ns.melf not found in {path}",
   "err_loader_not_selected": "Loader file not selected",

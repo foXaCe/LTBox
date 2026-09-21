@@ -241,6 +241,8 @@
   "err_ksu_artifact_hash_mismatch": "KernelSU アーティファクト '{artifact}' の SHA-256 が一致しません（期待値 {expected}、実際 {actual}）。ダウンロードした ZIP は削除されました。",
   "err_ksu_lkm_kernel_version_required": "KernelSU LKM は EDL モードの前にカーネルバージョンが必要です。手動で入力して再試行してください。",
   "err_ksu_stable_lkm_sources_exhausted": "リリース {tag}、カーネル {kver} について、リリースアセットとワークフローアーティファクトの両方を試しましたが、KernelSU LKM が見つかりませんでした。ワークフローアーティファクトは期限切れ（通常は90日後）の可能性があります。詳細： {details}",
+  "err_loader_manifest_images_missing": "ローダーマニフェストが参照するファイル {count} 個が同じフォルダーに見つかりません。マニフェストと同じ場所に置くか、別のローダーを選択してください: {files}",
+  "err_loader_manifest_unreadable": "ローダーマニフェストを読み込めません: {error}",
   "err_loader_missing": "{path} にローダーファイルが見つかりません",
   "err_loader_not_found_in_path": "{path} に xbl_s_devprg_ns.melf が見つかりません",
   "err_loader_not_selected": "ローダーファイルが選択されていません。",

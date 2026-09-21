@@ -241,6 +241,8 @@
   "err_ksu_artifact_hash_mismatch": "SHA-256 артефакта KernelSU '{artifact}' не совпадает (ожидалось {expected}, получено {actual}); загруженный ZIP удалён.",
   "err_ksu_lkm_kernel_version_required": "KernelSU LKM требует версию ядра до входа в режим EDL; введите её вручную и повторите попытку.",
   "err_ksu_stable_lkm_sources_exhausted": "KernelSU LKM не найден после проверки ресурсов релиза и артефактов рабочего процесса для релиза {tag} и ядра {kver}. Артефакты рабочего процесса могли истечь (обычно примерно через 90 дней). Подробности: {details}",
+  "err_loader_manifest_images_missing": "В папке манифеста загрузчика нет файлов, на которые он ссылается (всего: {count}). Поместите их рядом с манифестом или выберите другой загрузчик: {files}",
+  "err_loader_manifest_unreadable": "Не удалось прочитать манифест загрузчика: {error}",
   "err_loader_missing": "Файл загрузчика не найден: {path}",
   "err_loader_not_found_in_path": "В {path} не найден xbl_s_devprg_ns.melf",
   "err_loader_not_selected": "Файл загрузчика не выбран.",
