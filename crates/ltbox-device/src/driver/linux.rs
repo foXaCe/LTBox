@@ -71,6 +71,9 @@ struct GithubAsset {
     browser_download_url: String,
     #[serde(default)]
     size: u64,
+    /// GitHub's `sha256:<hex>` asset digest; required before a root install.
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 pub fn check_required_drivers() -> DriverStatus {
@@ -237,6 +240,10 @@ fn install_kernel_driver(log: &mut Vec<String>) -> Result<()> {
             )));
         }
         download_file(&asset.browser_download_url, &asset.name, &zip_path, log)?;
+        // The package's maintainer scripts run as root; install only the
+        // exact bytes GitHub reports for this release asset.
+        ltbox_core::crypto::verify_github_sha256_digest(&zip_path, asset.digest.as_deref())
+            .map_err(|e| DriverError::Parse(e.to_string()))?;
         extract_first_deb(&zip_path, &deb_path)?;
         live!(
             log,
@@ -816,6 +823,7 @@ mod tests {
                     name: "qud_9.9.9.9_all.zip".into(),
                     browser_download_url: "https://example.test/prerelease".into(),
                     size: 1,
+                    digest: None,
                 }],
                 draft: false,
                 prerelease: true,
@@ -827,6 +835,7 @@ mod tests {
                     name: "qud_8.8.8.8_all.zip".into(),
                     browser_download_url: "https://example.test/draft".into(),
                     size: 1,
+                    digest: None,
                 }],
                 draft: true,
                 prerelease: false,
@@ -838,6 +847,7 @@ mod tests {
                     name: "qud_1.0.5.0_all.zip".into(),
                     browser_download_url: "https://example.test/older-stable".into(),
                     size: 1,
+                    digest: None,
                 }],
                 draft: false,
                 prerelease: false,
@@ -849,6 +859,7 @@ mod tests {
                     name: "qud_1.0.6.4_all.zip".into(),
                     browser_download_url: "https://example.test/latest-stable".into(),
                     size: 1,
+                    digest: None,
                 }],
                 draft: false,
                 prerelease: false,
@@ -860,6 +871,7 @@ mod tests {
                     name: "qud_2.0.0.0_all.zip".into(),
                     browser_download_url: "https://example.test/windows-only".into(),
                     size: 1,
+                    digest: None,
                 }],
                 draft: false,
                 prerelease: false,

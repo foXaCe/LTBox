@@ -81,10 +81,67 @@ fn escape_powershell_single_quoted(s: &str) -> String {
     s.replace('\'', "''")
 }
 
-/// `true` when an Authenticode signer `Subject` names Qualcomm
-/// (case-insensitive substring match).
+/// Qualcomm legal entities whose code-signing certificates may sign the
+/// driver installers, compared against the signer's `O=` attribute.
+const QUALCOMM_SIGNER_ORGS: &[&str] = &[
+    "Qualcomm Technologies, Inc.",
+    "Qualcomm Incorporated",
+    "Qualcomm Innovation Center, Inc.",
+];
+
+/// `true` when an Authenticode signer `Subject`'s organization (`O=`) is a
+/// Qualcomm entity. A substring match would also accept any valid
+/// certificate that merely mentions Qualcomm, e.g. `CN=NotQualcomm Ltd`.
 fn signer_subject_is_qualcomm(subject: &str) -> bool {
-    subject.to_ascii_lowercase().contains("qualcomm")
+    subject_attribute(subject, "O").is_some_and(|org| {
+        QUALCOMM_SIGNER_ORGS
+            .iter()
+            .any(|known| org.eq_ignore_ascii_case(known))
+    })
+}
+
+/// Value of one attribute in an X.500 subject such as
+/// `CN="Qualcomm Technologies, Inc.", O=..., C=US`. Values may be quoted or
+/// contain bare commas, so an RDN only ends at `,` followed by `KEY=`.
+fn subject_attribute<'a>(subject: &'a str, key: &str) -> Option<&'a str> {
+    let mut rest = subject.trim();
+    while !rest.is_empty() {
+        let (name, value_and_more) = rest.split_once('=')?;
+        let end = rdn_value_end(value_and_more);
+        let value = value_and_more[..end].trim();
+        if name.trim().eq_ignore_ascii_case(key) {
+            let value = value
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .unwrap_or(value);
+            return Some(value);
+        }
+        rest = value_and_more[end..].trim_start_matches(',').trim_start();
+    }
+    None
+}
+
+/// Byte offset where an RDN value ends: just past the closing quote of a
+/// quoted value, or at the first `,` followed by an attribute key and `=`.
+fn rdn_value_end(value: &str) -> usize {
+    let trimmed = value.trim_start();
+    let lead = value.len() - trimmed.len();
+    if let Some(quoted) = trimmed.strip_prefix('"')
+        && let Some(close) = quoted.find('"')
+    {
+        return lead + close + 2;
+    }
+    for (index, _) in value.match_indices(',') {
+        let after = value[index + 1..].trim_start();
+        let key_len = after
+            .bytes()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'.')
+            .count();
+        if key_len > 0 && after.as_bytes().get(key_len) == Some(&b'=') {
+            return index;
+        }
+    }
+    value.len()
 }
 
 #[derive(Clone, Copy)]
@@ -761,8 +818,9 @@ mod tests {
 
     /// Weekly network smoke test for every installer LTBox may select.  It is
     /// deliberately ignored: CI enables it with `weekly_fetch`.  Downloaded
-    /// installers stay in `tempfile` and are never started or inspected as an
-    /// installer, so this test cannot touch the driver store or hardware.
+    /// installers stay in `tempfile` and only have their Authenticode signer
+    /// read — never started — so this test cannot touch the driver store or
+    /// hardware. It pins the production signer check to the real certificates.
     #[test]
     #[ignore = "weekly_fetch: downloads published Qualcomm Windows installers"]
     fn weekly_fetch_windows_driver_installers_all_arches() {
@@ -800,6 +858,8 @@ mod tests {
                     {
                         return Err("downloaded installer is empty".to_string());
                     }
+                    verify_qualcomm_authenticode(&path, &mut Vec::new())
+                        .map_err(|error| error.to_string())?;
                     Ok(())
                 })();
                 if let Err(error) = result {
@@ -969,17 +1029,36 @@ mod tests {
     }
 
     #[test]
-    fn signer_subject_requires_qualcomm_case_insensitive() {
-        assert!(signer_subject_is_qualcomm(
-            "CN=Qualcomm Technologies, Inc., O=Qualcomm Technologies, Inc., L=San Diego, S=California, C=US"
-        ));
-        assert!(signer_subject_is_qualcomm("cn=qualcomm, o=qualcomm"));
-        assert!(signer_subject_is_qualcomm("CN=QUALCOMM INCORPORATED"));
-        assert!(!signer_subject_is_qualcomm(
-            "CN=Microsoft Windows, O=Microsoft Corporation"
-        ));
-        assert!(!signer_subject_is_qualcomm(""));
-        assert!(!signer_subject_is_qualcomm("CN=Acme Drivers"));
+    fn signer_subject_requires_a_qualcomm_organization() {
+        for subject in [
+            "CN=Qualcomm Technologies, Inc., O=Qualcomm Technologies, Inc., L=San Diego, S=California, C=US",
+            r#"CN="Qualcomm Technologies, Inc.", O="Qualcomm Technologies, Inc.", L=San Diego, S=California, C=US"#,
+            "CN=QUALCOMM INCORPORATED, O=QUALCOMM INCORPORATED, C=US",
+            "O=Qualcomm Innovation Center, Inc., C=US",
+        ] {
+            assert!(signer_subject_is_qualcomm(subject), "{subject}");
+        }
+        for subject in [
+            "",
+            "CN=Acme Drivers",
+            "CN=Microsoft Windows, O=Microsoft Corporation",
+            "CN=QUALCOMM INCORPORATED",
+            "CN=Qualcomm Technologies, Inc., O=NotQualcomm Ltd, C=US",
+            "CN=x, O=Qualcomm Technologies, Inc. Fan Club, C=US",
+            "cn=qualcomm, o=qualcomm",
+        ] {
+            assert!(!signer_subject_is_qualcomm(subject), "{subject}");
+        }
+    }
+
+    #[test]
+    fn subject_attribute_reads_quoted_and_comma_values() {
+        let subject = r#"CN="A, B", O=Org, Inc., OU=Unit, C=US"#;
+        assert_eq!(subject_attribute(subject, "CN"), Some("A, B"));
+        assert_eq!(subject_attribute(subject, "o"), Some("Org, Inc."));
+        assert_eq!(subject_attribute(subject, "OU"), Some("Unit"));
+        assert_eq!(subject_attribute(subject, "C"), Some("US"));
+        assert_eq!(subject_attribute(subject, "L"), None);
     }
 
     #[test]
