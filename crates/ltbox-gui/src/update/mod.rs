@@ -467,7 +467,8 @@ impl App {
                 // so they leave `{work}` in the message. This is the one place
                 // an operation error is surfaced, and the last point where the
                 // running operation is still known — `fail_op` clears it.
-                let e = e.replace("{work}", &self.busy_operation_label());
+                let e =
+                    ltbox_core::i18n::format_template(&e, &[("work", self.busy_operation_label())]);
                 let reboot_wait_failed = self.operation.view() == Some(View::Reboot);
                 self.fail_op();
                 if reboot_wait_failed {

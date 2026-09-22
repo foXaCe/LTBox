@@ -414,8 +414,10 @@ impl App {
         let version = text(
             // Tags carry a leading `v`; the string already says "version",
             // so trim it rather than rendering "Version v3.3.0".
-            self.t("update_dialog_version")
-                .replace("{version}", release.tag.trim_start_matches('v')),
+            tr_args!(
+                "update_dialog_version",
+                version = release.tag.trim_start_matches('v')
+            ),
         )
         .size(theme::text_size::TITLE_MEDIUM);
         let body_key = if upgrade.available {
@@ -478,10 +480,10 @@ impl App {
         let title = text(self.t("update_dialog_title").to_string())
             .size(theme::text_size::DIALOG_HEADLINE)
             .line_height(32.0 / 24.0);
-        let version = text(
-            self.t("update_dialog_version")
-                .replace("{version}", release.tag.trim_start_matches('v')),
-        )
+        let version = text(tr_args!(
+            "update_dialog_version",
+            version = release.tag.trim_start_matches('v')
+        ))
         .size(theme::text_size::TITLE_MEDIUM);
 
         let state_body: Element<'_, Message> = match &self.operation.direct_update {
@@ -509,9 +511,7 @@ impl App {
                     SelfUpdateFailureKind::Swap => "update_dialog_error_swap",
                     SelfUpdateFailureKind::Restart => "update_dialog_error_restart",
                 };
-                let detail = self
-                    .t("update_dialog_error_detail")
-                    .replace("{error}", &failure.detail);
+                let detail = tr_args!("update_dialog_error_detail", error = failure.detail);
                 column![
                     text(self.t("update_dialog_failed").to_string())
                         .size(theme::text_size::BODY_MEDIUM)
