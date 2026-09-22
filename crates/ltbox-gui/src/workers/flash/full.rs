@@ -1294,26 +1294,23 @@ pub(crate) fn flash_worker(
         let (boot_floor, vbs_floor) = match (edl_floors, fastboot_rollback_floors) {
             (Some((b, v)), _) => (Some(b), Some(v)),
             (None, Some(floors)) => (Some(floors.boot_index), Some(floors.vbmeta_system_index)),
-            (None, None) => {
-                let idx = match device_rollback_index {
-                    Some(i) => Some(i),
-                    None if is_rollback_protected_model(&device_model) => {
-                        ltbox_core::live!(
-                            log,
-                            "[ARB] {}",
-                            ltbox_core::i18n::tr("live_arb_edl_dump")
-                        );
-                        Some(read_device_rollback_index_via_edl(
-                            &mut session,
-                            active_slot.as_deref(),
-                            &arb_work_dir,
-                            &mut log,
-                        )?)
-                    }
-                    None => None,
-                };
-                (idx, idx)
-            }
+            (None, None) => match device_rollback_index {
+                Some(i) => (Some(i), Some(i)),
+                None if is_rollback_protected_model(&device_model) => {
+                    ltbox_core::live!(log, "[ARB] {}", ltbox_core::i18n::tr("live_arb_edl_dump"));
+                    // Read both slots: with Fastboot unreachable the active
+                    // slot is unknown, and a device running `_b` can hold a
+                    // higher index than the `_a` this flash is about to boot.
+                    let device = read_device_vbmeta(
+                        &mut session,
+                        active_slot.as_deref(),
+                        &arb_work_dir,
+                        &mut log,
+                    )?;
+                    (Some(device.boot_floor), Some(device.vbs_floor))
+                }
+                None => (None, None),
+            },
         };
 
         // (base, on-disk filename, slot label, device floor for this location)

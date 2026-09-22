@@ -1561,46 +1561,6 @@ pub(crate) fn active_slot_suffix(slot: Option<&str>) -> &'static str {
     }
 }
 
-/// Read the device's committed AVB rollback index by dumping the active-slot
-/// `boot` + `vbmeta_system` over EDL and taking the higher index. Used when
-/// fastboot can't report `stored_rollback_index` (every model but the no-ARB
-/// TB322FC). `slot` is the active-slot suffix; falls back to `_a` when
-/// unknown. The max is the device's rollback floor — bumping a partition
-/// above its own claim is safe, so the generic key-map overlay path needs
-/// only this single value (vs the per-partition split the TB323FU testkey
-/// path keeps for its re-sign targets).
-fn read_device_rollback_index_via_edl(
-    session: &mut ltbox_device::edl::EdlSession,
-    slot: Option<&str>,
-    work_dir: &std::path::Path,
-    log: &mut Vec<String>,
-) -> std::result::Result<u64, String> {
-    let s = active_slot_suffix(slot);
-    let boot = format!("boot{s}");
-    let vbs = format!("vbmeta_system{s}");
-    let boot_lun = ltbox_core::partition_lun::lun_for_partition(&boot)
-        .ok_or_else(|| format!("no LUN for {boot}"))?;
-    let vbs_lun = ltbox_core::partition_lun::lun_for_partition(&vbs)
-        .ok_or_else(|| format!("no LUN for {vbs}"))?;
-    let boot_img = work_dir.join(format!("dev_{boot}.img"));
-    let vbs_img = work_dir.join(format!("dev_{vbs}.img"));
-    session
-        .dump_partition(&boot, &boot_img, 0, boot_lun, log)
-        .map_err(|e| format!("dump device {boot}: {e}"))?;
-    session
-        .dump_partition(&vbs, &vbs_img, 0, vbs_lun, log)
-        .map_err(|e| format!("dump device {vbs}: {e}"))?;
-    let boot_idx = ltbox_patch::avb::extract_image_avb_info(&boot_img)
-        .map_err(|e| format!("AVB {boot}: {e}"))?
-        .rollback_index;
-    let vbs_idx = ltbox_patch::avb::extract_image_avb_info(&vbs_img)
-        .map_err(|e| format!("AVB {vbs}: {e}"))?
-        .rollback_index;
-    let _ = std::fs::remove_file(&boot_img);
-    let _ = std::fs::remove_file(&vbs_img);
-    Ok(boot_idx.max(vbs_idx))
-}
-
 /// Route device into EDL (Qualcomm 9008). Shared by Root/Unroot/Flash.
 ///
 /// Already-EDL: no-op. Fastboot live: continue system boot, wait for ADB,
