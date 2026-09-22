@@ -46,8 +46,13 @@ fn download_ksu_manager_apk_release(
         .ok_or_else(|| LtboxError::Download(format!("No manager APK artifact on latest {repo}")))?;
     ltbox_core::live!(
         log,
-        "[KSU] {repo} {}",
-        tr_args!("log_release_latest_asset", tag = tag, name = name)
+        "[KSU] {}",
+        tr_args!(
+            "log_release_latest_asset",
+            repo = repo,
+            tag = tag,
+            name = name
+        )
     );
     let asset_path = work_dir.join(&name);
     download_to_file(&url, &asset_path, log)?;
@@ -79,8 +84,12 @@ fn download_ksu_manager_apk_nightly(
         )?;
     ltbox_core::live!(
         log,
-        "[KSU] {repo} {}",
-        tr_args!("log_nightly_artifact", artifact = artifact_name)
+        "[KSU] {}",
+        tr_args!(
+            "log_nightly_artifact",
+            repo = repo,
+            artifact = artifact_name
+        )
     );
     fetch_nightly_apk_outer_zip(
         "KSU",
@@ -119,8 +128,13 @@ fn download_skroot_manager_apk(
         .ok_or_else(|| LtboxError::Download(format!("No SKRoot Lite APK on latest {repo}")))?;
     ltbox_core::live!(
         log,
-        "[SKRoot] {repo} {}",
-        tr_args!("log_release_latest_asset", tag = tag, name = name)
+        "[SKRoot] {}",
+        tr_args!(
+            "log_release_latest_asset",
+            repo = repo,
+            tag = tag,
+            name = name
+        )
     );
     let asset_path = work_dir.join(&name);
     download_to_file(&url, &asset_path, log)?;

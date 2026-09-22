@@ -43,17 +43,21 @@ fn resolve_signing_key(
             let sha = pubkey_sha1.unwrap_or("").trim();
             ltbox_core::live!(
                 log,
-                "[AVB] {image_name} {} {sha} → {} {spec}",
-                tr("log_avb_pubkey"),
-                tr("log_avb_bundled")
+                "[AVB] {}",
+                tr_args!(
+                    "log_avb_signing_key",
+                    image = image_name,
+                    sha1 = sha,
+                    key = spec
+                )
             );
             Ok(Some(spec.to_string()))
         }
         Ok(None) => {
             ltbox_core::live!(
                 log,
-                "[AVB] {image_name} {}",
-                tr("log_avb_unsigned_skip_key")
+                "[AVB] {}",
+                tr_args!("log_avb_unsigned_skip_key", image = image_name)
             );
             Ok(None)
         }
@@ -310,9 +314,10 @@ pub(super) fn resolve_nightly_run(
         Some(id) => {
             ltbox_core::live!(
                 log,
-                "[Nightly] {repo}: {}",
+                "[Nightly] {}",
                 tr_args!(
                     "log_nightly_validating_manual",
+                    repo = repo,
                     id = id,
                     workflow = workflow_file,
                     branch = branch,
@@ -328,9 +333,10 @@ pub(super) fn resolve_nightly_run(
         None => {
             ltbox_core::live!(
                 log,
-                "[Nightly] {repo}: {}",
+                "[Nightly] {}",
                 tr_args!(
                     "log_nightly_auto_detect",
+                    repo = repo,
                     workflow = workflow_file,
                     branch = branch,
                 )
@@ -346,8 +352,8 @@ pub(super) fn resolve_nightly_run(
     };
     ltbox_core::live!(
         log,
-        "[Nightly] {repo}: {}",
-        tr_args!("log_nightly_using_run_id", id = run_id)
+        "[Nightly] {}",
+        tr_args!("log_nightly_using_run_id", repo = repo, id = run_id)
     );
     Ok((repo, run_id))
 }
@@ -499,7 +505,9 @@ pub fn stage_root_payload(cfg: &RootPipelineConfig, log: &mut Vec<String>) -> Re
                         "[KSU] {}",
                         tr_args!(
                             "log_ksu_fetching_nightly",
-                            run_id = format!("{:?}", cfg.nightly_run_id),
+                            run_id = cfg
+                                .nightly_run_id
+                                .map_or_else(|| tr("log_value_auto"), |id| id.to_string()),
                         )
                     );
                     download_ksu_payload_nightly(
@@ -675,11 +683,12 @@ pub fn build_patched_artifacts(
     fs::rename(&patched_root_image, &final_root_image)?;
     ltbox_core::live!(
         log,
-        "[Root] {} {} {} {}",
-        tr("log_root_patched"),
-        stock_filename,
-        tr("log_root_ready_at"),
-        final_root_image.display()
+        "[Root] {}",
+        ltbox_core::tr_args!(
+            "log_root_patched",
+            image = stock_filename,
+            path = final_root_image.display()
+        )
     );
 
     // Slot suffix must be poll-resolved by the caller. Defaulting to
@@ -716,7 +725,11 @@ pub fn build_patched_artifacts(
             .is_some_and(|key| !key.trim().is_empty());
     let root_image_key = if preserve_stock {
         avb::preserve_stock_vbmeta(&stock_root_image_src, &final_root_image)?;
-        ltbox_core::live!(log, "[AVB] {stock_filename}: preserved stock signed vbmeta");
+        ltbox_core::live!(
+            log,
+            "[AVB] {}",
+            tr_args!("log_avb_preserved_stock_vbmeta", image = stock_filename)
+        );
         None
     } else {
         let key = resolve_signing_key(stock_info.public_key_sha1.as_deref(), stock_filename, log)?;
@@ -728,12 +741,14 @@ pub fn build_patched_artifacts(
         )?;
         ltbox_core::live!(
             log,
-            "[AVB] {} {} ({} rollback={}, key={})",
-            tr("log_avb_hash_footer_added"),
-            stock_filename,
-            stock_info.algorithm,
-            stock_info.rollback_index,
-            key.as_deref().unwrap_or("(unsigned)")
+            "[AVB] {}",
+            tr_args!(
+                "log_avb_hash_footer_added",
+                image = stock_filename,
+                algorithm = stock_info.algorithm,
+                index = stock_info.rollback_index,
+                key = key.as_deref().unwrap_or(&tr("log_value_unsigned"))
+            )
         );
         key
     };
@@ -804,10 +819,13 @@ pub fn build_patched_artifacts(
                     }
                     ltbox_core::live!(
                         log,
-                        "[AVB] {} {} at {} (key={key})",
-                        tr("log_avb_rebuilt_vbmeta_from_partition_image"),
-                        stock_filename,
-                        final_vbmeta.display(),
+                        "[AVB] {}",
+                        tr_args!(
+                            "log_avb_rebuilt_vbmeta_from_partition_image",
+                            image = stock_filename,
+                            path = final_vbmeta.display(),
+                            key = key
+                        ),
                     );
                 }
                 None => {
@@ -817,9 +835,11 @@ pub fn build_patched_artifacts(
                     fs::copy(&vbmeta_src, &final_vbmeta)?;
                     ltbox_core::live!(
                         log,
-                        "[AVB] {} {}",
-                        tr("log_avb_vbmeta_unsigned_copied"),
-                        final_vbmeta.display(),
+                        "[AVB] {}",
+                        tr_args!(
+                            "log_avb_vbmeta_unsigned_copied",
+                            path = final_vbmeta.display()
+                        ),
                     );
                 }
             }

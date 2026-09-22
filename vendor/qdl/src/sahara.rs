@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
 use anstream::println;
-use owo_colors::OwoColorize;
-use pbr::{ProgressBar, Units};
 use std::{
     cmp::min,
     ffi::CStr,
@@ -395,13 +393,11 @@ fn sahara_dump_region<T: QdlChan>(
     entry: RamdumpTable64,
     output: &mut impl Write,
 ) -> Result<()> {
-    let mut pb = ProgressBar::new(entry.len);
-    pb.show_time_left = true;
-    pb.message(&format!(
-        "Dumping {}: ",
-        String::from_utf8(entry.filename.to_vec())?
-    ));
-    pb.set_units(Units::Bytes);
+    let mut progress = crate::operation_log::Transfer::new(
+        false,
+        format!("Sahara {}", String::from_utf8(entry.filename.to_vec())?),
+        entry.len,
+    );
 
     let mut bytes_read = 0usize;
     while bytes_read < entry.len as usize {
@@ -428,13 +424,10 @@ fn sahara_dump_region<T: QdlChan>(
             let _ = channel.read(&mut []);
         }
 
-        pb.set(bytes_read as u64);
         output.write_all(&buf[..n])?;
+        progress.add(n as u64);
     }
-    // Close the bar with a newline. `pbr` only ever rewrites its single row
-    // with `\r`, so without this the final 100% state stays on the current
-    // line and the next log message is appended to it.
-    pb.finish_println("");
+    drop(progress);
 
     Ok(())
 }
@@ -563,7 +556,7 @@ pub fn sahara_run<T: QdlChan>(
                     && (req.status == 1 /* COMPLETE */ /* 8916 bug */ ||
                      images.len() == 1)
                 {
-                    println!("{}", "Loader sent. Hack away!".green());
+                    crate::operation_log::diagnostic("Sahara programmer transfer complete");
                     return Ok(vec![]);
                 }
             }

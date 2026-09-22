@@ -35,7 +35,7 @@ pub fn patch_root_image(
         }
     }
 
-    ltbox_core::live!(
+    ltbox_core::live_debug!(
         log,
         "[KSU] {}",
         tr_args!("log_root_unpack_image", image = img_name)
@@ -56,13 +56,13 @@ pub fn patch_root_image(
     // images have no top-level init, so skip the rename there.
     let has_init = boot::cpio(work_dir, ramdisk_name, &["exists init"])?;
     if has_init == 0 {
-        ltbox_core::live!(log, "[KSU] {}", tr("log_ksu_cpio_mv_init"));
+        ltbox_core::live_debug!(log, "[KSU] {}", tr("log_ksu_cpio_mv_init"));
         boot::cpio_checked(work_dir, ramdisk_name, &["mv init init.real"])?;
     } else {
         ltbox_core::live!(log, "[KSU] {}", tr("log_ksu_no_stock_init"));
     }
 
-    ltbox_core::live!(log, "[KSU] {}", tr("log_ksu_cpio_add"));
+    ltbox_core::live_debug!(log, "[KSU] {}", tr("log_ksu_cpio_add"));
     boot::cpio_checked(work_dir, ramdisk_name, &["add 0755 init init"])?;
     boot::cpio_checked(
         work_dir,
@@ -70,7 +70,7 @@ pub fn patch_root_image(
         &["add 0755 kernelsu.ko kernelsu.ko"],
     )?;
 
-    ltbox_core::live!(
+    ltbox_core::live_debug!(
         log,
         "[KSU] {}",
         tr_args!("log_root_repack_image", image = img_name)

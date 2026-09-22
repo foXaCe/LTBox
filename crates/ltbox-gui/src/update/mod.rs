@@ -595,6 +595,7 @@ impl App {
             }
             Message::ClearLog => {
                 self.log_lines.clear();
+                self.log_history = crate::log_history::LogHistory::default();
                 self.rebuild_log_editor();
             }
             Message::SaveLog => {
@@ -617,6 +618,7 @@ impl App {
             Message::SaveLogPath(path) => {
                 if let Some(path) = path {
                     let source = self.pending_log_save_source;
+                    self.drain_pending_log_streams();
                     let joined = self.log_text_for_save(source);
                     let output = path.clone();
                     return task_heavy(

@@ -243,7 +243,11 @@ pub fn patch_root_image(
 
     // SHA-1 of stock boot for Magisk config.
     let sha1 = boot::sha1(&img_path)?;
-    ltbox_core::live!(log, "[Magisk] {}: {sha1}", tr("log_magisk_stock_sha1"));
+    ltbox_core::live!(
+        log,
+        "[Magisk] {}",
+        tr_args!("log_magisk_stock_sha1", sha1 = sha1)
+    );
 
     // Back up stock ramdisk so Magisk can restore on unroot.
     fs::copy(&ramdisk, work_dir.join("ramdisk.cpio.orig"))?;

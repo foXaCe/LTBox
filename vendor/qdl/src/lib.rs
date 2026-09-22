@@ -20,9 +20,9 @@ use types::QdlChan;
 use types::QdlReadWrite;
 
 use anyhow::bail;
-use pbr::{ProgressBar, Units};
 use xmltree::{self, Element, XMLNode};
 
+pub mod operation_log;
 pub mod parsers;
 pub mod sahara;
 #[cfg(feature = "serial")]
@@ -666,12 +666,9 @@ where
     }
 
     let total_bytes = (sectors_left * channel.fh_config().storage_sector_size) as u64;
-    let mut pb = ProgressBar::new(total_bytes);
-    pb.show_time_left = true;
-    pb.message(&format!("Sending partition {label}: "));
-    pb.set_units(Units::Bytes);
+    let mut progress = operation_log::Transfer::new(true, label.to_owned(), total_bytes);
 
-    // Structured progress for GUI consumers; terminal bar stays independent.
+    // Existing byte callbacks remain independent of the optional log observer.
     on_progress(0, total_bytes);
     let mut completed_bytes: u64 = 0;
 
@@ -711,13 +708,10 @@ where
         sectors_left -= chunk_size_sectors;
         let chunk_bytes = (chunk_size_sectors * channel.fh_config().storage_sector_size) as u64;
         completed_bytes = completed_bytes.saturating_add(chunk_bytes);
-        pb.add(chunk_bytes);
+        progress.add(chunk_bytes);
         on_progress(completed_bytes, total_bytes);
     }
-    // Close the bar with a newline. `pbr` only ever rewrites its single row
-    // with `\r`, so without this the final 100% state stays on the current
-    // line and the next log message is appended to it.
-    pb.finish_println("");
+    drop(progress);
 
     // The USB `Write` impl already terminates every transfer through
     // `EndpointWrite::submit_end()` — a ZLP when the payload is a multiple
@@ -794,8 +788,11 @@ pub fn firehose_read_storage(
         bail!("Read request was NAKed");
     }
 
-    let mut pb = ProgressBar::new(bytes_left as u64);
-    pb.set_units(Units::Bytes);
+    let mut progress = operation_log::Transfer::new(
+        false,
+        format!("LUN {phys_part_idx} @ {start_sector}"),
+        bytes_left as u64,
+    );
 
     let mut last_read_was_zero_len = false;
     while bytes_left > 0 {
@@ -823,12 +820,9 @@ pub fn firehose_read_storage(
             .context("Error writing storage data")?;
 
         bytes_left -= n;
-        pb.add(n as u64);
+        progress.add(n as u64);
     }
-    // Close the bar with a newline. `pbr` only ever rewrites its single row
-    // with `\r`, so without this the final 100% state stays on the current
-    // line and the next log message is appended to it.
-    pb.finish_println("");
+    drop(progress);
 
     if !last_read_was_zero_len && channel.fh_config().backend == QdlBackend::Usb {
         // Issue a dummy read to drain the queue

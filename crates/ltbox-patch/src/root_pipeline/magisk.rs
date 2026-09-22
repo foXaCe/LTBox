@@ -44,7 +44,12 @@ pub(super) fn download_magisk_release_apk(
     ltbox_core::live!(
         log,
         "[Magisk] {}",
-        tr_args!("log_release_latest_asset", tag = tag, name = name)
+        tr_args!(
+            "log_release_latest_asset",
+            repo = repo,
+            tag = tag,
+            name = name
+        )
     );
     download_to_file(&url, dst_path, log)?;
     Ok(tag)
@@ -164,8 +169,12 @@ pub fn download_magisk_apk_nightly(
     })?;
     ltbox_core::live!(
         log,
-        "[Magisk] {repo} {}",
-        tr_args!("log_nightly_artifact", artifact = artifact_name)
+        "[Magisk] {}",
+        tr_args!(
+            "log_nightly_artifact",
+            repo = repo,
+            artifact = artifact_name
+        )
     );
     fetch_nightly_apk_outer_zip(
         "Magisk",

@@ -70,7 +70,7 @@ pub fn firehose_parser_configure_response<T: QdlChan>(
         .context("Device response is missing the 'Version' attribute")?;
     let min_version_supported: u32 = parse_attr(attrs, "MinVersionSupported")?;
 
-    println!("Found protocol version {}", version.bright_blue());
+    crate::operation_log::diagnostic(&format!("Firehose protocol version: {version}"));
 
     if min_version_supported > FH_PROTO_VERSION_SUPPORTED {
         bail!(

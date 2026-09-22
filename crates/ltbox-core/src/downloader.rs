@@ -1,7 +1,7 @@
 //! HTTP download helpers for root-pipeline asset fetches.
 //!
-//! Blocking `ureq` wrapper that streams a URL to disk and appends progress
-//! lines to a caller-owned log. Pairs with [`crate::github::GitHubClient`]
+//! Blocking `ureq` wrapper that streams a URL to disk, logs start/results, and
+//! publishes transient progress to the live sink. Pairs with [`crate::github::GitHubClient`]
 //! for release-asset URL resolution.
 
 use std::path::Path;
@@ -53,7 +53,7 @@ pub fn build_agent() -> ureq::Agent {
 pub enum DownloadEvent {
     /// Stream opened, before any bytes have been read.
     Start,
-    /// Known `Content-Length`: a new 5 % bucket boundary fired.
+    /// Known `Content-Length`: a 750 ms progress tick fired.
     ProgressPct {
         downloaded_mb: f64,
         total_mb: f64,
@@ -68,7 +68,7 @@ pub enum DownloadEvent {
 
 /// Stream `url` to `out_path` in 64 KiB chunks; the caller's
 /// `on_event` closure handles all progress logging / formatting.
-/// Centralises the byte loop + 5 %-bucket + 750 ms-tick throttle so
+/// Centralises the byte loop + 750 ms-tick throttle so
 /// secondary consumers (e.g. the Windows driver installer) don't
 /// re-implement the streaming logic just to swap the log prefix and
 /// i18n keys.
@@ -114,7 +114,7 @@ where
             })?;
         let mut buf = [0u8; 64 * 1024];
         let mut downloaded: u64 = 0;
-        let mut last_pct_bucket: i32 = -1;
+
         let started_at = std::time::Instant::now();
         let mut last_emit_at = started_at;
 
@@ -138,9 +138,7 @@ where
                 && total > 0
             {
                 let pct = (downloaded * 100 / total) as i32;
-                let bucket = pct / 5;
-                if bucket > last_pct_bucket {
-                    last_pct_bucket = bucket;
+                if now.duration_since(last_emit_at) >= std::time::Duration::from_millis(750) {
                     last_emit_at = now;
                     let total_mb = total as f64 / 1_000_000.0;
                     on_event(
@@ -231,7 +229,7 @@ fn replace_file(tmp_path: &Path, out_path: &Path) -> std::io::Result<()> {
 }
 
 /// Download `url` to `out_path` in 64 KiB chunks. Progress is throttled to
-/// one log line per 5 %. Creates missing parent dirs; replaces the destination
+/// one live update per 750 ms; GUI persistence samples every 5 s. Creates missing parent dirs; replaces the destination
 /// only after a complete download (via a sibling partial + rename).
 pub fn download_to_file(url: &str, out_path: &Path, log: &mut Vec<String>) -> Result<()> {
     let display_name = out_path
@@ -241,16 +239,15 @@ pub fn download_to_file(url: &str, out_path: &Path, log: &mut Vec<String>) -> Re
         .to_string();
     let url_for_start = url.to_string();
     let agent = build_agent();
+    let progress_key = crate::live_sink::progress_key("download");
     stream_with_progress(&agent, url, out_path, log, move |log, event| {
-        // `live!` (vs the previous `log.push`) routes through the live
-        // sink so the GUI streams every progress tick in real time —
-        // otherwise long downloads (LKM nightly payloads, KSU manager
-        // APKs) sat invisible until `*ExecDone` flushed the Vec.
+        // Starts/results are ordinary log lines; transient progress carries
+        // an identity so GUI presentation and export sampling stay separate.
         match event {
             DownloadEvent::Start => {
                 crate::live!(
                     log,
-                    "[dl] {}",
+                    "[Download] {}",
                     crate::tr_args!(
                         "live_download_start",
                         name = &display_name,
@@ -264,34 +261,38 @@ pub fn download_to_file(url: &str, out_path: &Path, log: &mut Vec<String>) -> Re
                 pct,
                 speed_mbps,
             } => {
-                let bar = render_progress_bar(pct as u32, 24);
-                crate::live!(
-                    log,
-                    "[dl] {}",
-                    crate::tr_args!(
-                        "live_download_progress_pct",
-                        name = &display_name,
-                        bar = &bar,
-                        pct = format!("{pct:>3}"),
-                        downloaded = format!("{downloaded_mb:.1}"),
-                        total = format!("{total_mb:.1}"),
-                        speed = format!("{speed_mbps:.1}")
-                    )
+                crate::live_sink::progress(
+                    &progress_key,
+                    format!(
+                        "[Download] {}",
+                        crate::tr_args!(
+                            "live_download_progress_pct",
+                            name = &display_name,
+                            pct = pct,
+                            downloaded =
+                                crate::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                            total = crate::log_format::decimal_bytes(total_mb * 1_000_000.0),
+                            speed = crate::log_format::decimal_bytes(speed_mbps * 1_000_000.0)
+                        )
+                    ),
                 );
             }
             DownloadEvent::ProgressChunked {
                 downloaded_mb,
                 speed_mbps,
             } => {
-                crate::live!(
-                    log,
-                    "[dl] {}",
-                    crate::tr_args!(
-                        "live_download_progress_chunked",
-                        name = &display_name,
-                        downloaded = format!("{downloaded_mb:.1}"),
-                        speed = format!("{speed_mbps:.1}")
-                    )
+                crate::live_sink::progress(
+                    &progress_key,
+                    format!(
+                        "[Download] {}",
+                        crate::tr_args!(
+                            "live_download_progress_chunked",
+                            name = &display_name,
+                            downloaded =
+                                crate::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                            speed = crate::log_format::decimal_bytes(speed_mbps * 1_000_000.0)
+                        )
+                    ),
                 );
             }
             DownloadEvent::Done {
@@ -301,34 +302,18 @@ pub fn download_to_file(url: &str, out_path: &Path, log: &mut Vec<String>) -> Re
                 let avg = downloaded_mb / elapsed_s.max(0.001);
                 crate::live!(
                     log,
-                    "[dl] {}",
+                    "[Download] {}",
                     crate::tr_args!(
                         "live_download_done",
                         name = &display_name,
-                        size = format!("{downloaded_mb:.1}"),
-                        elapsed = format!("{elapsed_s:.1}"),
-                        avg = format!("{avg:.1}")
+                        size = crate::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                        elapsed = crate::log_format::elapsed(elapsed_s),
+                        avg = crate::log_format::decimal_bytes(avg * 1_000_000.0)
                     )
                 );
             }
         }
     })
-}
-
-/// 24-cell ASCII progress bar — `[████████····]`.  Renders nicely in
-/// the iced text editor without depending on `indicatif` (which is
-/// terminal-aware and would emit ANSI escapes the log panel can't
-/// render).
-fn render_progress_bar(pct: u32, width: usize) -> String {
-    let pct = pct.min(100) as usize;
-    let filled = pct * width / 100;
-    let mut s = String::with_capacity(width + 2);
-    s.push('[');
-    for i in 0..width {
-        s.push(if i < filled { '█' } else { '·' });
-    }
-    s.push(']');
-    s
 }
 
 #[cfg(test)]
@@ -384,9 +369,29 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "partials left behind: {leftovers:?}");
         assert!(
-            log.iter().any(|l| l.contains("[dl]")),
+            log.iter().any(|l| l.contains("[Download]")),
             "progress / done logging should still fire"
         );
+    }
+
+    #[test]
+    fn short_download_emits_start_and_done_without_progress_spam() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("small.bin");
+        let url = serve_bytes(b"small download");
+        let mut events = Vec::new();
+        stream_with_progress(&build_agent(), &url, &out, &mut Vec::new(), |_, event| {
+            events.push(match event {
+                DownloadEvent::Start => "start",
+                DownloadEvent::Done { .. } => {
+                    assert_eq!(std::fs::read(&out).unwrap(), b"small download");
+                    "done"
+                }
+                _ => "progress",
+            });
+        })
+        .unwrap();
+        assert_eq!(events, ["start", "done"]);
     }
 
     #[test]

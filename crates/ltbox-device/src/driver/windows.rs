@@ -598,6 +598,7 @@ fn download_with_progress(
 ) -> Result<()> {
     use ltbox_core::downloader::{DownloadEvent, stream_with_progress};
     let display_name = display_name.to_string();
+    let progress_key = ltbox_core::live_sink::progress_key("driver-download");
     stream_with_progress(agent, url, out_path, log, move |log, event| match event {
         DownloadEvent::Start => {
             live!(
@@ -612,32 +613,38 @@ fn download_with_progress(
             pct,
             speed_mbps,
         } => {
-            live!(
-                log,
-                "[Driver] {}",
-                tr_args!(
-                    "live_driver_progress_pct",
-                    name = &display_name,
-                    pct = format!("{pct:>3}"),
-                    downloaded = format!("{downloaded_mb:.1}"),
-                    total = format!("{total_mb:.1}"),
-                    speed = format!("{speed_mbps:.1}"),
-                )
+            ltbox_core::live_sink::progress(
+                &progress_key,
+                format!(
+                    "[Driver] {}",
+                    tr_args!(
+                        "live_driver_progress_pct",
+                        name = &display_name,
+                        pct = pct,
+                        downloaded =
+                            ltbox_core::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                        total = ltbox_core::log_format::decimal_bytes(total_mb * 1_000_000.0),
+                        speed = ltbox_core::log_format::decimal_bytes(speed_mbps * 1_000_000.0),
+                    )
+                ),
             );
         }
         DownloadEvent::ProgressChunked {
             downloaded_mb,
             speed_mbps,
         } => {
-            live!(
-                log,
-                "[Driver] {}",
-                tr_args!(
-                    "live_driver_progress_chunked",
-                    name = &display_name,
-                    downloaded = format!("{downloaded_mb:.1}"),
-                    speed = format!("{speed_mbps:.1}"),
-                )
+            ltbox_core::live_sink::progress(
+                &progress_key,
+                format!(
+                    "[Driver] {}",
+                    tr_args!(
+                        "live_driver_progress_chunked",
+                        name = &display_name,
+                        downloaded =
+                            ltbox_core::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                        speed = ltbox_core::log_format::decimal_bytes(speed_mbps * 1_000_000.0),
+                    )
+                ),
             );
         }
         DownloadEvent::Done {
@@ -650,8 +657,8 @@ fn download_with_progress(
                 tr_args!(
                     "live_driver_dl_done",
                     name = &display_name,
-                    size = format!("{downloaded_mb:.1}"),
-                    elapsed = format!("{elapsed_s:.1}"),
+                    size = ltbox_core::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                    elapsed = ltbox_core::log_format::elapsed(elapsed_s),
                 )
             );
         }

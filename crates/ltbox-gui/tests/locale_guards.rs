@@ -51,6 +51,97 @@ fn load_locale(locale: &str) -> BTreeMap<String, String> {
         .unwrap_or_else(|error| panic!("{} must parse: {error}", path.display()))
 }
 
+fn template_parameters(template: &str) -> BTreeSet<String> {
+    template
+        .split('{')
+        .skip(1)
+        .filter_map(|tail| tail.split_once('}'))
+        .map(|(name, _)| name.to_owned())
+        .collect()
+}
+
+#[test]
+fn log_template_parameters_match_in_every_locale() {
+    let english = load_locale("en");
+    for locale in ["ko", "ja", "zh", "ru"] {
+        let table = load_locale(locale);
+        for (key, template) in &english {
+            if key.starts_with("live_") || key.starts_with("log_") {
+                assert_eq!(
+                    template_parameters(template),
+                    template_parameters(&table[key]),
+                    "{locale}/{key}: localized log must preserve every named parameter"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn literal_log_macro_calls_supply_the_complete_template() {
+    fn inspect(stream: proc_macro2::TokenStream, table: &BTreeMap<String, String>, file: &Path) {
+        use proc_macro2::TokenTree;
+        let tokens: Vec<_> = stream.into_iter().collect();
+        for (index, token) in tokens.iter().enumerate() {
+            if let TokenTree::Group(group) = token {
+                inspect(group.stream(), table, file);
+            }
+            if !matches!(token, TokenTree::Ident(name) if name == "tr_args") {
+                continue;
+            }
+            let (Some(TokenTree::Punct(bang)), Some(TokenTree::Group(args))) =
+                (tokens.get(index + 1), tokens.get(index + 2))
+            else {
+                continue;
+            };
+            if bang.as_char() != '!' {
+                continue;
+            }
+            let args: Vec<_> = args.stream().into_iter().collect();
+            let Some(TokenTree::Literal(key)) = args.first() else {
+                continue;
+            };
+            let Ok(key) = syn::parse_str::<syn::LitStr>(&key.to_string()) else {
+                continue;
+            };
+            let key = key.value();
+            if !(key.starts_with("live_") || key.starts_with("log_")) {
+                continue;
+            }
+            let Some(template) = table.get(&key) else {
+                continue;
+            };
+            let supplied: BTreeSet<_> = args
+                .windows(3)
+                .filter_map(|window| match window {
+                    [
+                        TokenTree::Punct(comma),
+                        TokenTree::Ident(name),
+                        TokenTree::Punct(equal),
+                    ] if comma.as_char() == ',' && equal.as_char() == '=' => Some(name.to_string()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                template_parameters(template),
+                supplied,
+                "{}: {key}",
+                file.display()
+            );
+        }
+    }
+    let mut files = Vec::new();
+    collect_rust_sources(&workspace_dir().join("crates"), &mut files);
+    let table = load_locale("en");
+    for file in files {
+        if !file.components().any(|part| part.as_os_str() == "src") {
+            continue;
+        }
+        let source = production_source(&std::fs::read_to_string(&file).unwrap());
+        inspect(source.parse().unwrap(), &table, &file);
+    }
+}
+
 fn production_source(source: &str) -> String {
     use syn::{spanned::Spanned, visit::Visit};
     struct TestItems {

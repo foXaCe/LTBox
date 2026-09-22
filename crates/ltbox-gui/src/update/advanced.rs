@@ -155,7 +155,7 @@ impl App {
                 self.error_msg = None;
                 let conn = self.device.connection;
                 let pairs = self.flash_phys.active_pairs();
-                self.log_lines.push(format!(
+                self.log_push(format!(
                     "[FlashPhys] {}",
                     tr_args!("log_flashphys_starting", count = pairs.len())
                 ));

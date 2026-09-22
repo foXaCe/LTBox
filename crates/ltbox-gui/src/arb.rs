@@ -103,7 +103,7 @@ pub(crate) fn detect_arb_run(
         indices.sort_by_key(|(index, _)| *index);
         ltbox_core::live!(log, "[ARB] {}", phases.marker(4));
         for (index, value) in &indices {
-            ltbox_core::live!(log, "stored_rollback_index:{index} = {value}");
+            ltbox_core::live!(log, "[ARB] stored_rollback_index:{index} = {value}");
         }
         ltbox_core::live!(log, "[ARB] {}", phases.marker(5));
         ltbox_core::live!(log, "[ARB] {i_reboot_system}");
@@ -145,13 +145,13 @@ pub(crate) fn detect_arb_run(
             let index = ltbox_patch::avb::extract_image_avb_info(&output)
                 .map_err(|e| format!("{partition} AVB: {e}"))?
                 .rollback_index;
-            ltbox_core::live!(log, "{partition} = {index}");
+            ltbox_core::live!(log, "[ARB] {partition} = {index}");
         }
     }
     ltbox_core::live!(log, "[ARB] {}", phases.marker(4));
     ltbox_core::live!(
         log,
-        "{}",
+        "[ARB] {}",
         ltbox_core::i18n::tr("arb_edl_index_trust_warning")
     );
     ltbox_core::live!(log, "[ARB] {}", phases.marker(5));

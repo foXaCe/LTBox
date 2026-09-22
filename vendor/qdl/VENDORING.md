@@ -26,6 +26,16 @@ carrying the minimal patches we need.
 
 ## Local patches
 
+- **Structured GUI operation logs** (`src/operation_log.rs`, `src/lib.rs`,
+  `src/parsers.rs`, `src/sahara.rs`). An optional observer receives throttled
+  storage/Sahara-dump byte counts and protocol diagnostics. When installed, it
+  replaces native progress bars; standalone consumers keep terminal
+  output. Transfer counts never imply a successful final ACK. Short transfers
+  emit no progress rows, and longer transfers preserve their last byte count
+  on both success and error. Sahara completion and Firehose version messages
+  become neutral diagnostics. Existing transport and write-start callbacks
+  are unchanged.
+
 - **Preserve every byte when dumping storage** (`src/lib.rs`).
   `firehose_read_storage` uses `write_all` for each received chunk before
   advancing its byte count. A short output write is retried, while a zero-length

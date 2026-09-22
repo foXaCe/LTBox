@@ -73,8 +73,13 @@ pub(super) fn download_apatch_release_payload(
         .ok_or_else(|| LtboxError::Download(format!("No release APK on latest {repo}")))?;
     ltbox_core::live!(
         log,
-        "[APatch] {repo} {}",
-        tr_args!("log_release_latest_asset", tag = tag, name = name)
+        "[APatch] {}",
+        tr_args!(
+            "log_release_latest_asset",
+            repo = repo,
+            tag = tag,
+            name = name
+        )
     );
 
     let apk_path = work_dir.join("apatch.apk");
@@ -107,8 +112,12 @@ pub fn download_apatch_payload_nightly(
         })?;
     ltbox_core::live!(
         log,
-        "[APatch] {repo} {}",
-        tr_args!("log_nightly_artifact", artifact = artifact_name)
+        "[APatch] {}",
+        tr_args!(
+            "log_nightly_artifact",
+            repo = repo,
+            artifact = artifact_name
+        )
     );
     // Canonical apk path so Stable / Nightly share downstream steps.
     let apk_path = work_dir.join("apatch.apk");

@@ -1,7 +1,7 @@
 //! Validate a complete set of partition images before programming any of them.
 
 use super::{
-    EdlError, EdlSession, QdlChan, Result, begin_partition_progress, padded_transfer_bytes, tr,
+    EdlError, EdlSession, QdlChan, Result, begin_partition_progress, padded_transfer_bytes,
     update_flash_progress,
 };
 use std::fs::File;
@@ -154,12 +154,14 @@ impl EdlSession {
                         request.label
                     )));
                 }
-                ltbox_core::live!(
+                ltbox_core::live_debug!(
                     log,
-                    "[EDL] {} '{}' on LUN {}...",
-                    tr("log_edl_lookup_partition"),
-                    request.label,
-                    request.lun
+                    "[EDL] {}",
+                    ltbox_core::tr_args!(
+                        "log_edl_lookup_partition",
+                        part = request.label,
+                        lun = request.lun
+                    )
                 );
                 let config = self.dev.fh_config();
                 if config.storage_sector_size == 0
@@ -226,15 +228,18 @@ impl EdlSession {
             let mut last_percent = None;
             ltbox_core::live!(
                 log,
-                "[EDL] {} {} ← {} ({} bytes, {} sectors)",
-                tr("log_edl_flash_cmd"),
-                request.label,
-                request
-                    .image
-                    .expect("prepared write has an image")
-                    .display(),
-                image.file_len,
-                image.num_sectors
+                "[EDL] {}",
+                ltbox_core::tr_args!(
+                    "log_edl_flash_image",
+                    part = request.label,
+                    path = request
+                        .image
+                        .expect("prepared write has an image")
+                        .display(),
+                    size = ltbox_core::log_format::bytes(image.file_len),
+                    sectors = image.num_sectors,
+                    lun = request.lun
+                )
             );
             qdl::firehose_program_storage_with_callbacks(
                 &mut self.dev,
@@ -253,7 +258,11 @@ impl EdlSession {
                 partition: request.label.to_string(),
                 source: EdlError::Session(format!("Partition write failed: {error}")),
             })?;
-            ltbox_core::live!(log, "[EDL] {} {}", tr("log_edl_flashed"), request.label);
+            ltbox_core::live!(
+                log,
+                "[EDL] {}",
+                ltbox_core::tr_args!("log_edl_flashed", part = request.label)
+            );
         }
         Ok(())
     }

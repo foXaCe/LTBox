@@ -120,14 +120,11 @@ impl App {
                 loader = loader.display().to_string()
             ),
         ));
-        let reboot_cmd_sent = self.t("log_reboot_command_sent").to_string();
         Task::perform(
             async move {
-                tokio::task::spawn_blocking(move || {
-                    reboot_edl_with_loader_worker(loader, target, reboot_cmd_sent)
-                })
-                .await
-                .unwrap_or_else(|_| Err(ltbox_core::i18n::tr("err_task_failed")))
+                tokio::task::spawn_blocking(move || reboot_edl_with_loader_worker(loader, target))
+                    .await
+                    .unwrap_or_else(|_| Err(ltbox_core::i18n::tr("err_task_failed")))
             },
             |r| match r {
                 Ok(lines) => Message::Reboot(RebootMsg::RebootDone(lines)),

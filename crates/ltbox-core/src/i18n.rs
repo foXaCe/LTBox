@@ -41,9 +41,47 @@ pub fn tr(key: &str) -> String {
     key.to_string()
 }
 
+/// Substitute named values in a translated template in one pass. Values are
+/// opaque: braces in a file path or error must not become new placeholders.
+pub fn format_template(template: &str, values: &[(&str, String)]) -> String {
+    let mut result = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        result.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let Some(end) = rest.find('}') else { break };
+        let name = &rest[1..end];
+        if let Some((_, value)) = values.iter().find(|(key, _)| *key == name) {
+            result.push_str(value);
+        } else {
+            result.push_str(&rest[..=end]);
+        }
+        rest = &rest[end + 1..];
+    }
+    result.push_str(rest);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn substituted_paths_are_not_interpreted_as_templates() {
+        let values = [
+            ("path", "C:/images/{error}/boot.img".into()),
+            ("error", "timeout".into()),
+        ];
+        assert_eq!(
+            format_template("{path}: {error}", &values),
+            "C:/images/{error}/boot.img: timeout"
+        );
+        assert_eq!(
+            format_template("{error} / {error} / {unknown}", &values),
+            "timeout / timeout / {unknown}"
+        );
+        assert_eq!(format_template("literal {", &values), "literal {");
+    }
 
     #[test]
     fn tr_routes_through_the_installed_translator() {

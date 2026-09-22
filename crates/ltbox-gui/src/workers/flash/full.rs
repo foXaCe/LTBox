@@ -1657,7 +1657,7 @@ pub(crate) fn flash_worker(
                         ));
                     }
                 } else {
-                    ltbox_core::live!(
+                    ltbox_core::live_debug!(
                         log,
                         "[Flash] {}",
                         ltbox_core::i18n::tr("live_flash_efisp_flashed")

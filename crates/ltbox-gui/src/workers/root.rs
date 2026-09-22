@@ -378,17 +378,17 @@ pub(crate) fn root_worker(
             if rebuild_vbmeta {
                 live!(
                     log,
-                    "[Root] {} {} / {} (LUN {ROOT_PARTITIONS_LUN})",
-                    ll.root_resolved_prefix,
-                    root_primary,
-                    vbmeta_primary,
+                    "[Root] {}",
+                    ll.root_resolved(
+                        &format!("{root_primary} / {vbmeta_primary}"),
+                        ROOT_PARTITIONS_LUN
+                    )
                 );
             } else {
                 live!(
                     log,
-                    "[Root] {} {} (LUN {ROOT_PARTITIONS_LUN})",
-                    ll.root_resolved_prefix,
-                    root_primary,
+                    "[Root] {}",
+                    ll.root_resolved(&root_primary, ROOT_PARTITIONS_LUN)
                 );
             }
 
@@ -555,23 +555,26 @@ pub(crate) fn root_worker(
                     Some(root_image_fingerprint.as_str()),
                     Some(slot_suffix.as_str()),
                 ) {
-                    live!(log, "[Root] backup manifest write skipped: {error}");
+                    live!(
+                        log,
+                        "[Backup] {}",
+                        tr_args!("log_backup_manifest_failed", error = error)
+                    );
                 }
                 if vbmeta_backed_up {
                     live!(
                         log,
-                        "[Root] {} {} + vbmeta.img → {}",
-                        ll.root_backup_copy_prefix,
-                        root_image_name,
-                        actual_backup_dir.display()
+                        "[Root] {}",
+                        ll.root_backup_copy(
+                            &format!("{root_image_name} + vbmeta.img"),
+                            &actual_backup_dir
+                        )
                     );
                 } else {
                     live!(
                         log,
-                        "[Root] {} {} → {}",
-                        ll.root_backup_copy_prefix,
-                        root_image_name,
-                        actual_backup_dir.display()
+                        "[Root] {}",
+                        ll.root_backup_copy(root_image_name, &actual_backup_dir)
                     );
                 }
                 backup_dir = actual_backup_dir;
@@ -661,12 +664,7 @@ pub(crate) fn root_worker(
                 })?;
             // Surface the backup folder before the reset
             // so the user doesn't have to scroll.
-            live!(
-                log,
-                "[Root] {} {}",
-                ll.backup_saved_prefix,
-                backup_dir.display()
-            );
+            live!(log, "[Root] {}", ll.backup_saved(&backup_dir));
             // Phase 7/8 — Reboot to Android.
             live!(log, "[Root] {}", phases.marker(7));
             session.reset_tolerant(&mut log);
@@ -740,7 +738,6 @@ pub(crate) fn root_worker(
                 // booting a half-written boot/vbmeta/efisp chain. Leave
                 // the device in EDL and surface recovery guidance.
                 let msg = tr_args!("err_root_partial_write_recovery", error = e);
-                println!("[Root] {msg}");
                 Err(msg)
             } else {
                 // Pre-write failure: best-effort open a fresh session on
@@ -749,20 +746,19 @@ pub(crate) fn root_worker(
                 // some devices return, so this never masks the real error
                 // — failures here are only logged.
                 let mut reset_log: Vec<String> = Vec::new();
-                reset_log.push(format!(
+                live!(
+                    reset_log,
                     "[EDL] {}",
                     tr_args!("log_edl_attempt_reset_after_error", error = e.to_string())
-                ));
+                );
                 if let Ok(mut s) = ltbox_device::edl::EdlSession::open(&loader, &mut reset_log) {
                     s.reset_tolerant(&mut reset_log);
                 } else {
-                    reset_log.push(format!(
+                    live!(
+                        reset_log,
                         "[EDL] {}",
                         ltbox_core::i18n::tr("log_edl_reset_reopen_skipped")
-                    ));
-                }
-                for line in reset_log {
-                    println!("{line}");
+                    );
                 }
                 Err(e)
             }

@@ -99,17 +99,14 @@ pub(crate) fn reboot_worker(
 pub(crate) fn reboot_edl_with_loader_worker(
     loader: PathBuf,
     target: RebootTarget,
-    reboot_cmd_sent: String,
 ) -> Result<Vec<String>, String> {
     let mut log = Vec::new();
     let mut session = open_edl_session(&loader, &mut log)?;
     match target {
         RebootTarget::System => {
-            // Reboot-to-system is the user's intent here; the inner EDL
-            // reset log lines duplicate the surrounding `[Reboot]` start +
-            // `command sent` lines, so swallow them into a scratch log.
-            let mut quiet = Vec::new();
-            session.reset_tolerant(&mut quiet);
+            // The session reports a sent request or the handoff error itself.
+            // A scratch Vec does not suppress the process-wide live sink.
+            session.reset_tolerant(&mut log);
         }
         RebootTarget::Edl => {
             session
@@ -119,10 +116,9 @@ pub(crate) fn reboot_edl_with_loader_worker(
         other => {
             return Err(tr_args!(
                 "err_reboot_edl_target_unsupported",
-                target = format!("{other:?}")
+                target = tr(other.label_key())
             ));
         }
     }
-    ltbox_core::live!(log, "[Reboot] {}", reboot_cmd_sent);
     Ok(log)
 }

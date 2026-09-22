@@ -628,6 +628,11 @@ fn decompress_zst_images(
                 error = e
             )
         })?;
+        live!(
+            log,
+            "[Flash] {}",
+            tr_args!("live_flash_zst_done", name = name)
+        );
         count += 1;
     }
     Ok(count)
@@ -658,11 +663,12 @@ fn stream_zstd_decoder<R: std::io::Read, W: std::io::Write>(
     mut decoder: R,
     mut out: W,
     name: &str,
-    log: &mut Vec<String>,
+    _log: &mut Vec<String>,
     output_limit: u64,
 ) -> std::result::Result<W, String> {
     let mut buf = vec![0u8; 4 * 1024 * 1024];
     let mut total = 0u64;
+    let progress_key = ltbox_core::live_sink::progress_key("decompress");
     let mut next_mark = ZSTD_PROGRESS_INTERVAL_BYTES;
     loop {
         let n = decoder.read(&mut buf).map_err(|e| e.to_string())?;
@@ -681,14 +687,16 @@ fn stream_zstd_decoder<R: std::io::Read, W: std::io::Write>(
         out.write_all(&buf[..n]).map_err(|e| e.to_string())?;
         total = next_total;
         if total >= next_mark {
-            live!(
-                log,
-                "[Flash] {}",
-                tr_args!(
-                    "live_flash_zst_progress",
-                    name = name,
-                    gb = format!("{:.1}", total as f64 / 1_073_741_824.0)
-                )
+            ltbox_core::live_sink::progress(
+                &progress_key,
+                format!(
+                    "[Flash] {}",
+                    tr_args!(
+                        "live_flash_zst_progress",
+                        name = name,
+                        size = ltbox_core::log_format::bytes(total)
+                    )
+                ),
             );
             next_mark = next_mark.saturating_add(ZSTD_PROGRESS_INTERVAL_BYTES);
         }
@@ -836,8 +844,6 @@ fn run_country_change(
                 "live_country_dump_partition",
                 label = label,
                 lun = lun.to_string(),
-                start = "?",
-                sectors = "?"
             )
         );
         if let Err(e) = session.dump_partition(label, &dump_path, 0, lun, log) {
@@ -910,7 +916,11 @@ fn run_country_change(
         backup_fingerprint,
         None,
     ) {
-        live!(log, "[Backup] Could not record manifest: {error}");
+        live!(
+            log,
+            "[Backup] {}",
+            tr_args!("log_backup_manifest_failed", error = error)
+        );
     }
 
     if let Some(phases) = phases {
@@ -1090,12 +1100,7 @@ fn run_country_change(
         .map(|mut it| it.next().is_some())
         .unwrap_or(false)
     {
-        live!(
-            log,
-            "[Country] {} {}",
-            ll.backup_saved_prefix,
-            critical_backup.display()
-        );
+        live!(log, "[Country] {}", ll.backup_saved(critical_backup));
     }
     outcome
 }

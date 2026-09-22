@@ -146,7 +146,7 @@ pub fn download_and_install(log: &mut Vec<String>) -> Result<()> {
 
 fn install_udev_rules(log: &mut Vec<String>) -> Result<()> {
     if check_udev_rules() == DriverStatus::Present {
-        log.push("[driver] udev rules already up to date".to_string());
+        live!(log, "[Driver] {}", tr_args!("log_driver_udev_current"));
         return Ok(());
     }
 
@@ -172,7 +172,11 @@ fn install_udev_rules(log: &mut Vec<String>) -> Result<()> {
         )
     })?;
 
-    log.push(format!("[driver] pkexec {} --install-udev", exe.display()));
+    live!(
+        log,
+        "[Driver] {}",
+        tr_args!("log_driver_udev_installing", path = exe.display())
+    );
     let output = std::process::Command::new(pkexec)
         .arg(&exe)
         .arg("--install-udev")
@@ -186,7 +190,7 @@ fn install_udev_rules(log: &mut Vec<String>) -> Result<()> {
             "udev rules still not in place after install",
         )));
     }
-    log.push("[driver] udev rules installed".to_string());
+    live!(log, "[Driver] {}", tr_args!("log_driver_udev_installed"));
     Ok(())
 }
 
@@ -433,6 +437,7 @@ fn download_file(
 
     let agent = ltbox_core::downloader::build_agent();
     let display_name = name.to_string();
+    let progress_key = ltbox_core::live_sink::progress_key("driver-download");
     stream_with_progress(&agent, url, dst, log, move |log, event| match event {
         DownloadEvent::Start => {
             live!(
@@ -447,32 +452,38 @@ fn download_file(
             pct,
             speed_mbps,
         } => {
-            live!(
-                log,
-                "[Driver] {}",
-                tr_args!(
-                    "live_driver_progress_pct",
-                    name = &display_name,
-                    pct = format!("{pct:>3}"),
-                    downloaded = format!("{downloaded_mb:.1}"),
-                    total = format!("{total_mb:.1}"),
-                    speed = format!("{speed_mbps:.1}"),
-                )
+            ltbox_core::live_sink::progress(
+                &progress_key,
+                format!(
+                    "[Driver] {}",
+                    tr_args!(
+                        "live_driver_progress_pct",
+                        name = &display_name,
+                        pct = pct,
+                        downloaded =
+                            ltbox_core::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                        total = ltbox_core::log_format::decimal_bytes(total_mb * 1_000_000.0),
+                        speed = ltbox_core::log_format::decimal_bytes(speed_mbps * 1_000_000.0),
+                    )
+                ),
             );
         }
         DownloadEvent::ProgressChunked {
             downloaded_mb,
             speed_mbps,
         } => {
-            live!(
-                log,
-                "[Driver] {}",
-                tr_args!(
-                    "live_driver_progress_chunked",
-                    name = &display_name,
-                    downloaded = format!("{downloaded_mb:.1}"),
-                    speed = format!("{speed_mbps:.1}"),
-                )
+            ltbox_core::live_sink::progress(
+                &progress_key,
+                format!(
+                    "[Driver] {}",
+                    tr_args!(
+                        "live_driver_progress_chunked",
+                        name = &display_name,
+                        downloaded =
+                            ltbox_core::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                        speed = ltbox_core::log_format::decimal_bytes(speed_mbps * 1_000_000.0),
+                    )
+                ),
             );
         }
         DownloadEvent::Done {
@@ -485,8 +496,8 @@ fn download_file(
                 tr_args!(
                     "live_driver_dl_done",
                     name = &display_name,
-                    size = format!("{downloaded_mb:.1}"),
-                    elapsed = format!("{elapsed_s:.1}"),
+                    size = ltbox_core::log_format::decimal_bytes(downloaded_mb * 1_000_000.0),
+                    elapsed = ltbox_core::log_format::elapsed(elapsed_s),
                 )
             );
         }

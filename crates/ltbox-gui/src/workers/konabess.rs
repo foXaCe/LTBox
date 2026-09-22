@@ -276,7 +276,11 @@ fn execute_inspection<B: KonaBessInspectionBackend>(
         fingerprint.as_deref(),
         Some(&slot_suffix),
     ) {
-        live!(log, "[KonaBess] backup metadata unavailable: {error}");
+        live!(
+            log,
+            "[Backup] {}",
+            ltbox_core::tr_args!("log_backup_manifest_failed", error = error)
+        );
     }
 
     Ok((
@@ -327,12 +331,7 @@ pub(crate) fn konabess_inspection_worker(
 
     match execute_inspection(&mut backend, &paths, &phases, &mut log) {
         Ok((prepared, candidates)) => {
-            live!(
-                log,
-                "[KonaBess] {} {}",
-                ll.backup_saved_prefix,
-                prepared.backup_dir.display()
-            );
+            live!(log, "[KonaBess] {}", ll.backup_saved(&prepared.backup_dir));
             Ok(KonaBessInspectionResult {
                 prepared,
                 candidates,

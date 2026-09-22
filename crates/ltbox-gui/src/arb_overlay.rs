@@ -321,7 +321,7 @@ pub(crate) fn provision_canoe_efisp(
     session
         .flash_partition("efisp", efi, 0, efisp_lun, log)
         .map_err(|e| tr_args!("err_root_efisp_provision_failed", error = e))?;
-    live!(
+    ltbox_core::live_debug!(
         log,
         "[Root] {}",
         ltbox_core::i18n::tr("live_flash_efisp_flashed")

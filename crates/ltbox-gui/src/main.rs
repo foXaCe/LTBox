@@ -21,6 +21,8 @@ mod backup;
 mod country_flags;
 #[cfg(feature = "demo")]
 mod demo;
+#[cfg(feature = "demo")]
+mod demo_logs;
 mod device_name;
 mod device_queries;
 mod device_snapshot;
@@ -28,6 +30,9 @@ mod file_hash;
 mod focus_button;
 mod layout_constraints;
 mod loader;
+mod log_history;
+mod log_messages;
+use log_messages::LiveLabels;
 #[cfg(test)]
 mod manual_rollback_tests;
 mod message;
@@ -195,6 +200,18 @@ const fn package_upgrade_command(
 }
 
 fn main() -> iced::Result {
+    #[cfg(feature = "demo")]
+    {
+        let mut args = std::env::args_os().skip(1);
+        if args.next().as_deref() == Some(std::ffi::OsStr::new("--demo-log-catalog")) {
+            let directory = args
+                .next()
+                .expect("--demo-log-catalog requires an output directory");
+            demo_logs::export(std::path::Path::new(&directory))
+                .expect("failed to write the synthetic log catalogue");
+            return Ok(());
+        }
+    }
     if let Some(code) = ltbox_patch::boot::dispatch_magiskboot_helper() {
         std::process::exit(code);
     }
@@ -327,6 +344,7 @@ fn main() -> iced::Result {
 
     // Must run before any stdout write — the pipe has to be live
     // before the first `println!` resolves.
+    ltbox_core::live_sink::attach_gui();
     stdout_tap::install();
 
     // `_log_guard` MUST live for the whole process — dropping it
@@ -1378,18 +1396,6 @@ fn parse_hwboardid_ram_storage(hwboardid: &str) -> (String, String) {
     (String::new(), String::new())
 }
 
-/// Pre-translated live-log strings for spawn_blocking closures that
-/// can't carry `self` across thread boundaries.
-#[derive(Debug, Clone)]
-pub(crate) struct LiveLabels {
-    pub(crate) closing_dump: String,
-    pub(crate) flash_completed: String,
-    pub(crate) adb_no_kver: String,
-    pub(crate) backup_saved_prefix: String,
-    pub(crate) root_resolved_prefix: String,
-    pub(crate) root_backup_copy_prefix: String,
-}
-
 /// Classify a model → rollback-protection i18n key. Every supported model
 /// enforces AVB rollback protection except the PRC-only TB322FC, and an
 /// unknown model is assumed protected, so this is a TB322FC check.
@@ -1922,6 +1928,7 @@ struct App {
     /// scanned; drives the cleanup button's enabled state + size readout.
     temp_files_bytes: Option<u64>,
     log_lines: Vec<String>,
+    log_history: log_history::LogHistory,
     /// Selectable mirror of `log_lines`. Rebuilt on drain tick when `log_dirty`
     /// — batched to keep a long pbr flash from crashing wgpu.
     log_editor: iced::widget::text_editor::Content,
@@ -2124,6 +2131,7 @@ impl Default for App {
             cleaning_temp: false,
             temp_files_bytes: None,
             log_lines: vec![ready_log.clone()],
+            log_history: log_history::LogHistory::with_initial(&ready_log),
             log_editor: iced::widget::text_editor::Content::with_text(&ready_log),
             log_dirty: false,
             image_info_log: String::new(),
@@ -2278,8 +2286,13 @@ impl App {
     /// deferred to the drain tick — per-push reshape was driving
     /// wgpu into TDR during long pbr flashes.
     fn log_push<S: Into<String>>(&mut self, line: S) {
-        let s = line.into();
-        self.log_lines.push(s);
+        self.record_log_entry(ltbox_core::live_sink::Entry::info(line.into()));
+    }
+
+    fn record_log_entry(&mut self, entry: ltbox_core::live_sink::Entry) {
+        if let Some(line) = self.log_history.record(entry, std::time::Instant::now()) {
+            self.log_lines.push(line);
+        }
         self.trim_log();
         self.log_dirty = true;
     }
@@ -2351,72 +2364,32 @@ impl App {
         (boot_lower || vbmeta_lower).then_some(())
     }
 
-    /// Tap + sink drain shared by `Message::DrainStdoutTap` and
-    /// every `*ExecDone` handler. Pulls third-party `println!` from
-    /// the Windows stdout pipe AND our own `live!` lines from the
-    /// in-process sink, dedupes against the recent log tail (catches
-    /// the tap-late race where a `live!` line lands in the sink at
-    /// tick T and only surfaces in the tap at tick T+1) and
-    /// in-batch (catches the same line landing in BOTH streams at
-    /// the same tick). Returns count of new lines added so callers
-    /// can decide whether to rebuild the editor.
+    /// Our typed sink is the sole producer of LTBox messages. The native tap
+    /// contains only third-party output, so repeated sessions need no text dedup.
     fn drain_pending_log_streams(&mut self) -> usize {
-        let tap_lines = stdout_tap::drain();
         let sink_lines = ltbox_core::live_sink::drain();
-        let total = tap_lines.len() + sink_lines.len();
-        if total == 0 {
-            return 0;
+        let tap_lines = stdout_tap::drain();
+        let total = sink_lines.len() + tap_lines.len();
+        for entry in sink_lines {
+            self.record_log_entry(entry);
         }
-        let mut seen: std::collections::HashSet<String> =
-            std::collections::HashSet::with_capacity(total + 32);
-        let tail_window = self.log_lines.len().saturating_sub(32);
-        seen.extend(self.log_lines[tail_window..].iter().cloned());
-        let mut combined: Vec<String> = Vec::with_capacity(total);
-        for line in tap_lines.into_iter().chain(sink_lines) {
-            if seen.insert(line.clone()) {
-                combined.push(line);
-            }
+        for line in tap_lines {
+            self.log_push(format!("[Native] {line}"));
         }
-        let added = combined.len();
-        if added > 0 {
-            self.log_extend(combined);
-        }
-        added
+        total
     }
 
     /// Final flush at `*ExecDone` time. The closure's local Vec is
     /// dropped — `live!` already pushed every line through the sink
     /// path (bulk-streamed across the run) and the macro's Vec copy
-    /// is pure dead weight at completion time. Re-appending it via
-    /// `log_extend` doubled the entire transcript on screen; the
-    /// adjacent-tail dedup only collapses the boundary line, not the
-    /// 100+ interior lines.
+    /// is pure dead weight at completion time. Re-appending it would
+    /// duplicate the entire transcript.
     fn flush_exec_done_log(&mut self, _vec_from_closure: Vec<String>) {
         // `_vec_from_closure` intentionally ignored — see above.
         // Drain whatever the 500 ms tick missed between the last
         // `Message::DrainStdoutTap` and the closure's return so the
         // user sees the closing lines without a tick of latency.
         self.drain_pending_log_streams();
-    }
-
-    /// Bulk append; one truncation pass.
-    fn log_extend<I: IntoIterator<Item = String>>(&mut self, lines: I) {
-        // Adjacent dedup against the existing tail collapses repeated
-        // streamed lines without duplicating the visible transcript.
-        let mut prev_tail = self.log_lines.last().cloned();
-        let mut accepted: Vec<String> = Vec::new();
-        for line in lines {
-            if prev_tail.as_deref() == Some(line.as_str()) {
-                continue;
-            }
-            prev_tail = Some(line.clone());
-            accepted.push(line);
-        }
-        if !accepted.is_empty() {
-            self.log_lines.extend(accepted);
-            self.trim_log();
-            self.log_dirty = true;
-        }
     }
 
     fn begin_op(&mut self, view: View) {
@@ -2446,23 +2419,19 @@ impl App {
 
     /// Snapshot localized log strings for use across thread boundaries.
     fn live_labels(&self) -> LiveLabels {
-        let t = |k: &str| self.t(k).to_string();
-        LiveLabels {
-            closing_dump: t("live_closing_dump_session"),
-            flash_completed: t("live_flash_completed"),
-            adb_no_kver: t("live_adb_no_kver"),
-            backup_saved_prefix: t("live_backup_saved_prefix"),
-            root_resolved_prefix: t("live_root_resolved_prefix"),
-            root_backup_copy_prefix: t("live_root_backup_copy_prefix"),
-        }
+        LiveLabels::new(|key| self.t(key).to_owned())
     }
 
     fn end_op(&mut self) {
+        self.log_history.finish_progress();
+        self.log_dirty = true;
         self.operation.finish(true);
         self.clear_flash_progress();
     }
 
     fn fail_op(&mut self) {
+        self.log_history.finish_progress();
+        self.log_dirty = true;
         self.operation.finish(false);
         self.clear_flash_progress();
     }
@@ -2562,7 +2531,7 @@ impl App {
 
     fn log_text_for_save(&self, source: LogSaveSource) -> String {
         match source {
-            LogSaveSource::Main => self.log_lines.join("\n"),
+            LogSaveSource::Main => self.log_history.text(),
             LogSaveSource::ImageInfo => self.image_info_log.clone(),
         }
     }
@@ -2807,7 +2776,13 @@ impl App {
     /// Rebuild the editor from `log_lines` and auto-scroll to the
     /// bottom via `Motion::DocumentEnd`. Selection state resets.
     fn rebuild_log_editor(&mut self) {
-        let joined = self.log_lines.join("\n");
+        let mut joined = self.log_lines.join("\n");
+        if let Some(progress) = self.log_history.progress_line() {
+            if !joined.is_empty() {
+                joined.push('\n');
+            }
+            joined.push_str(progress);
+        }
         self.log_editor = iced::widget::text_editor::Content::with_text(&joined);
         use iced::widget::text_editor::{Action, Motion};
         self.log_editor.perform(Action::Move(Motion::DocumentEnd));
@@ -4618,7 +4593,7 @@ mod tests {
         let mut app = App::default();
         let reporter = app.begin_phased_op(View::Root, OperationPhaseKind::Root);
         let _ = reporter.marker(3);
-        app.log_push("[dl] file 45% (12.3/45.6 MB)");
+        app.log_push("[Download] file: 45% (12.3 MB / 45.6 MB)");
         app.log_push("[old worker] Phase 7/8");
         assert_eq!(app.operation.current_step(), 2);
         app.fail_op();
@@ -4642,6 +4617,47 @@ mod tests {
         assert!(app.log_lines.is_empty());
         assert_eq!(app.log_editor.text(), "");
         assert!(!app.log_dirty);
+    }
+
+    #[test]
+    fn visible_log_tail_and_export_have_independent_retention() {
+        use ltbox_core::live_sink::{Entry, Kind};
+        let mut app = App::default();
+        drop(app.update(Message::ClearLog));
+        for i in 0..600 {
+            app.log_push(format!("operation line {i}"));
+        }
+        app.record_log_entry(Entry::debug("GPT diagnostic".into()));
+        for pct in [10, 20, 30] {
+            app.record_log_entry(Entry {
+                line: format!("transfer {pct}%"),
+                kind: Kind::Progress {
+                    key: "test-transfer".into(),
+                },
+            });
+        }
+        app.rebuild_log_editor();
+        let visible = app.log_editor.text();
+        assert!(!visible.contains("GPT diagnostic"));
+        assert!(!visible.contains("transfer 10%"));
+        assert!(visible.contains("transfer 30%"));
+        assert_eq!(app.log_lines.len(), LOG_MAX_LINES);
+        let saved = app.log_text_for_save(LogSaveSource::Main);
+        assert!(saved.starts_with("operation line 0\n"));
+        assert!(saved.contains("[Debug] GPT diagnostic"));
+        assert!(saved.contains("transfer 30%"));
+
+        app.log_push("write failed: disconnected");
+        app.fail_op();
+        app.rebuild_log_editor();
+        assert!(app.log_editor.text().contains("write failed: disconnected"));
+        assert!(
+            app.log_text_for_save(LogSaveSource::Main)
+                .contains("transfer 30%")
+        );
+
+        drop(app.update(Message::ClearLog));
+        assert!(app.log_text_for_save(LogSaveSource::Main).is_empty());
     }
 
     #[test]
@@ -5090,7 +5106,7 @@ mod tests {
         // Whitespace-strip the whole source so rustfmt line-wrapping (which can
         // split a tr_args! call across lines) doesn't hide it. Accept either
         // substitution form: the manual tr(key) followed by a replace chain, or
-        // the tr_args! macro (which expands to the same chain). Both guarantee
+        // the tr_args! macro (which uses single-pass interpolation). Both guarantee
         // the placeholder is filled rather than shipped literally.
         let compact: String = source.chars().filter(|c| !c.is_whitespace()).collect();
         let tr_args_needle = format!("tr_args!(\"{key}\"");
@@ -5137,11 +5153,7 @@ mod tests {
             "log_edl_flash_program_cmd",
             &["label", "image", "lun", "start", "sectors"],
         );
-        assert_template_call_replaces(
-            gui_src,
-            "live_country_dump_partition",
-            &["label", "lun", "start", "sectors"],
-        );
+        assert_template_call_replaces(gui_src, "live_country_dump_partition", &["label", "lun"]);
         assert_template_call_replaces(gui_src, "live_dump_phys_dumping_lun", &["lun", "path"]);
         assert_template_call_replaces(gui_src, "live_dump_phys_lun_failed", &["lun", "error"]);
     }

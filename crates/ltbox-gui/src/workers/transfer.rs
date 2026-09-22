@@ -495,16 +495,10 @@ impl CountryPatchProgress {
     }
 }
 
-/// Forward buffered worker logs to the stdout tap queue immediately.
-///
-/// Long-running advanced actions often collect lines in a local `Vec<String>`
-/// and only hand that vec back on completion, which makes the exec card look
-/// stalled. Emitting lines here lets the UI drain them every 500 ms via
-/// `DrainStdoutTap`.
-pub(crate) fn flush_worker_logs(log: &mut Vec<String>) {
-    for line in log.drain(..) {
-        println!("{line}");
-    }
+/// Drop local copies after `live!` has already streamed them through the sink.
+/// Reprinting these would duplicate diagnostics and errors in the native tap.
+pub(crate) fn discard_streamed_log_copies(log: &mut Vec<String>) {
+    log.clear();
 }
 
 /// Dump selected partitions to `output_folder` as `<label>.img`. Reopens
@@ -525,7 +519,7 @@ pub(crate) fn dump_parts_execute(
     if let Err(e) = std::fs::create_dir_all(&out_dir) {
         let msg = tr_args!("live_dumpparts_create_output_failed", error = e.to_string());
         ltbox_core::live!(log, "[DumpParts] {msg}");
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
         return Err(msg);
     }
 
@@ -537,7 +531,7 @@ pub(crate) fn dump_parts_execute(
         Err(e) => {
             let msg = tr_args!("err_edl_session_open_failed", error = e.to_string());
             ltbox_core::live!(log, "[DumpParts] {msg}");
-            flush_worker_logs(&mut log);
+            discard_streamed_log_copies(&mut log);
             return Err(msg);
         }
     };
@@ -646,7 +640,7 @@ pub(crate) fn dump_parts_execute(
     // op; a silent "Done." would hide incomplete rescue material.
     if let Some(err) = dump_parts_outcome_error(&critical_failures, &all_failures) {
         ltbox_core::live!(log, "[DumpParts] {err}");
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
         return Err(err);
     }
     ltbox_core::live!(log, "[DumpParts] {}", ltbox_core::i18n::tr("live_op_done"));
@@ -670,15 +664,15 @@ pub(crate) fn dump_physical_execute(
     let mut log = Vec::new();
     ltbox_core::live!(log, "[DumpPhys] {}", phases.marker(1));
     if ensure_edl(conn, "DumpPhys", &mut log).is_err() {
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
         return Err(ltbox_core::i18n::tr("err_edl_transition_failed"));
     }
-    flush_worker_logs(&mut log);
+    discard_streamed_log_copies(&mut log);
     let out_dir = std::path::PathBuf::from(&output_folder);
     if let Err(e) = std::fs::create_dir_all(&out_dir) {
         let msg = tr_args!("live_dump_phys_create_output_failed", error = e.to_string());
         ltbox_core::live!(log, "[DumpPhys] {msg}");
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
         return Err(msg);
     }
 
@@ -690,11 +684,11 @@ pub(crate) fn dump_physical_execute(
         Err(e) => {
             let msg = tr_args!("err_edl_session_open_failed", error = e.to_string());
             ltbox_core::live!(log, "[DumpPhys] {msg}");
-            flush_worker_logs(&mut log);
+            discard_streamed_log_copies(&mut log);
             return Err(msg);
         }
     };
-    flush_worker_logs(&mut log);
+    discard_streamed_log_copies(&mut log);
 
     ltbox_core::live!(log, "[DumpPhys] {}", phases.marker(3));
     let mut failure_msgs: Vec<String> = Vec::new();
@@ -709,7 +703,7 @@ pub(crate) fn dump_physical_execute(
                 path = out_path.display().to_string()
             )
         );
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
         if let Err(e) = session.dump_physical_storage(*lun, &out_path, &mut log) {
             let msg = tr_args!(
                 "live_dump_phys_lun_failed",
@@ -719,7 +713,7 @@ pub(crate) fn dump_physical_execute(
             ltbox_core::live!(log, "[DumpPhys] {msg}");
             failure_msgs.push(msg);
         }
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
     }
 
     ltbox_core::live!(log, "[DumpPhys] {}", phases.marker(4));
@@ -731,7 +725,7 @@ pub(crate) fn dump_physical_execute(
             seconds = EDL_POST_DUMP_STABILIZE.as_secs().to_string()
         )
     );
-    flush_worker_logs(&mut log);
+    discard_streamed_log_copies(&mut log);
     std::thread::sleep(EDL_POST_DUMP_STABILIZE);
     ltbox_core::live!(log, "[DumpPhys] {}", phases.marker(5));
     ltbox_core::live!(
@@ -743,11 +737,11 @@ pub(crate) fn dump_physical_execute(
     if !failure_msgs.is_empty() {
         let err = failure_msgs.join("; ");
         ltbox_core::live!(log, "[DumpPhys] {err}");
-        flush_worker_logs(&mut log);
+        discard_streamed_log_copies(&mut log);
         return Err(err);
     }
     ltbox_core::live!(log, "[DumpPhys] {}", ltbox_core::i18n::tr("live_op_done"));
-    flush_worker_logs(&mut log);
+    discard_streamed_log_copies(&mut log);
     Ok(log)
 }
 

@@ -589,18 +589,53 @@ impl WipeErasePlanEntry {
     fn log_line_with_template(&self, template: &str) -> String {
         format!(
             "[EDL] {}",
-            template
-                .replace("{label}", &self.label)
-                .replace("{lun}", &self.lun.to_string())
-                .replace("{start}", &self.start_sector)
-                .replace("{sectors}", &self.num_sectors.to_string())
+            ltbox_core::i18n::format_template(
+                template,
+                &[
+                    ("label", self.label.clone()),
+                    ("lun", self.lun.to_string()),
+                    ("start", self.start_sector.clone()),
+                    ("sectors", self.num_sectors.to_string()),
+                ]
+            )
         )
+    }
+}
+
+fn observe_qdl_log(event: qdl::operation_log::Event<'_>) {
+    use ltbox_core::{live_sink, log_format, tr_args};
+    match event {
+        qdl::operation_log::Event::Diagnostic(message) => {
+            live_sink::emit(live_sink::Entry::debug(format!("[EDL/qdl] {message}")));
+        }
+        qdl::operation_log::Event::Transfer {
+            id,
+            write,
+            target,
+            completed,
+            total,
+        } => {
+            let key = if write {
+                "live_transfer_write"
+            } else {
+                "live_transfer_read"
+            };
+            let line = tr_args!(
+                key,
+                target = target,
+                pct = flash_percent(completed, total),
+                done = log_format::bytes(completed),
+                total = log_format::bytes(total)
+            );
+            live_sink::progress(&format!("edl:{id}"), format!("[EDL] {line}"));
+        }
     }
 }
 
 impl EdlSession {
     /// Open: find port → Sahara upload → Firehose configure.
     pub fn open(loader_path: &Path, log: &mut Vec<String>) -> Result<Self> {
+        qdl::operation_log::set_observer(observe_qdl_log);
         crate::selection::ensure_single_usb_target()
             .map_err(|e| EdlError::Session(e.to_string()))?;
         let mode = qcom_driver_mode();
@@ -609,7 +644,11 @@ impl EdlSession {
         // `port` is now a libusb marker string ("USB:VID_05C6&PID_9008"),
         // not a COM port name — the log line wording is generic enough
         // ("found on …") that the swap doesn't require an i18n update.
-        ltbox_core::live!(log, "[EDL] {} {port}", tr("log_edl_found_on"));
+        ltbox_core::live!(
+            log,
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_found_on", port = port)
+        );
 
         // An encrypted manifest (`qsahara_device_programmer.x`) is decrypted
         // to the plaintext `.xml` beside it before use, so its per-id images
@@ -643,9 +682,11 @@ impl EdlSession {
             if ltbox_core::sahara_xml::is_manifest_filename(loader_path) {
                 ltbox_core::live!(
                     log,
-                    "[EDL] {} {}",
-                    tr("log_edl_loading_programmer"),
-                    loader_path.display()
+                    "[EDL] {}",
+                    ltbox_core::tr_args!(
+                        "log_edl_loading_programmer",
+                        path = loader_path.display()
+                    )
                 );
                 let (slots, paths) = ltbox_core::sahara_xml::load_image_slots(loader_path)
                     .map_err(|e| EdlError::Session(format!("Sahara manifest: {e}")))?;
@@ -653,28 +694,35 @@ impl EdlSession {
                     .iter()
                     .filter_map(|s| s.as_ref().map(|b| b.len()))
                     .sum();
-                ltbox_core::live!(
+                ltbox_core::live_debug!(
                     log,
-                    "[EDL] {} ({} images, {} bytes total)",
-                    tr("log_edl_programmer_size"),
-                    paths.len(),
-                    total
+                    "[EDL] {}",
+                    ltbox_core::tr_args!(
+                        "log_edl_programmer_size",
+                        size = ltbox_core::log_format::bytes(total as u64),
+                        count = paths.len()
+                    )
                 );
                 slots
             } else {
                 ltbox_core::live!(
                     log,
-                    "[EDL] {} {}",
-                    tr("log_edl_loading_programmer"),
-                    loader_path.display()
+                    "[EDL] {}",
+                    ltbox_core::tr_args!(
+                        "log_edl_loading_programmer",
+                        path = loader_path.display()
+                    )
                 );
                 let mbn = std::fs::read(loader_path)
                     .map_err(|e| EdlError::Session(format!("Failed to read loader: {e}")))?;
-                ltbox_core::live!(
+                ltbox_core::live_debug!(
                     log,
-                    "[EDL] {} {} bytes",
-                    tr("log_edl_programmer_size"),
-                    mbn.len()
+                    "[EDL] {}",
+                    ltbox_core::tr_args!(
+                        "log_edl_programmer_size",
+                        size = ltbox_core::log_format::bytes(mbn.len() as u64),
+                        count = 1
+                    )
                 );
                 vec![Some(mbn)]
             };
@@ -869,7 +917,11 @@ impl EdlSession {
         let sector_size = self.dev.fh_config().storage_sector_size as u64;
         let mut out = Vec::new();
         for lun in lun_range {
-            ltbox_core::live!(log, "[EDL] {} LUN {lun}", tr("log_edl_reading_gpt"));
+            ltbox_core::live_debug!(
+                log,
+                "[EDL] {}",
+                ltbox_core::tr_args!("log_edl_reading_gpt", lun = lun)
+            );
             match self.read_gpt_for_lun(0, lun) {
                 Ok(gpt) => {
                     for (_idx, part) in gpt.iter() {
@@ -893,9 +945,7 @@ impl EdlSession {
                     ltbox_core::live!(
                         log,
                         "[EDL] {}",
-                        tr("log_edl_lun_gpt_read_failed")
-                            .replace("{lun}", &lun.to_string())
-                            .replace("{error}", &e.to_string())
+                        ltbox_core::tr_args!("log_edl_lun_gpt_read_failed", lun = lun, error = e)
                     );
                 }
             }
@@ -1017,10 +1067,10 @@ impl EdlSession {
         lun: u8,
         log: &mut Vec<String>,
     ) -> Result<()> {
-        ltbox_core::live!(
+        ltbox_core::live_debug!(
             log,
-            "[EDL] {} '{part_name}' on LUN {lun}...",
-            tr("log_edl_lookup_partition")
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_lookup_partition", part = part_name, lun = lun)
         );
         let (start, end) = self.find_partition(part_name, slot, lun)?;
         // GPT bounds are inclusive: end == start spans one sector.
@@ -1036,24 +1086,38 @@ impl EdlSession {
         let sectors = usize::try_from(span).map_err(|_| {
             EdlError::Session(format!("Partition {part_name} span {span} exceeds usize"))
         })?;
-        ltbox_core::live!(
+        ltbox_core::live_debug!(
             log,
-            "[EDL] {} {part_name}: LBA {start}-{end} ({sectors} sectors)",
-            tr("log_edl_found_partition")
+            "[EDL] {}",
+            ltbox_core::tr_args!(
+                "log_edl_found_partition",
+                part = part_name,
+                start = start,
+                end = end,
+                sectors = sectors
+            )
         );
 
         ltbox_core::live!(
             log,
-            "[EDL] {} {part_name} → {}",
-            tr("log_edl_dump_cmd"),
-            output.display()
+            "[EDL] {}",
+            ltbox_core::tr_args!(
+                "log_edl_read_image",
+                part = part_name,
+                path = output.display(),
+                lun = lun
+            )
         );
         let expected = padded_transfer_bytes(sectors, self.dev.fh_config().storage_sector_size)?;
         atomic_dump::write_dump(output, expected, |file| {
             qdl::firehose_read_storage(&mut self.dev, file, sectors, slot, lun, start)
                 .map_err(|e| EdlError::Session(format!("Partition read failed: {e}")))
         })?;
-        ltbox_core::live!(log, "[EDL] {} {part_name}", tr("log_edl_dumped"));
+        ltbox_core::live!(
+            log,
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_dumped", part = part_name)
+        );
         Ok(())
     }
 
@@ -1072,9 +1136,13 @@ impl EdlSession {
     ) -> Result<()> {
         ltbox_core::live!(
             log,
-            "[EDL] {} {part_name} → {} (LUN {lun}, start {start_sector}, {num_sectors} sectors)",
-            tr("log_edl_dump_cmd"),
-            output.display()
+            "[EDL] {}",
+            ltbox_core::tr_args!(
+                "log_edl_read_image",
+                part = part_name,
+                path = output.display(),
+                lun = lun
+            )
         );
         let expected =
             padded_transfer_bytes(num_sectors, self.dev.fh_config().storage_sector_size)?;
@@ -1082,7 +1150,11 @@ impl EdlSession {
             qdl::firehose_read_storage(&mut self.dev, file, num_sectors, 0, lun, start_sector)
                 .map_err(|e| EdlError::Session(format!("Partition read failed: {e}")))
         })?;
-        ltbox_core::live!(log, "[EDL] {} {part_name}", tr("log_edl_dumped"));
+        ltbox_core::live!(
+            log,
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_dumped", part = part_name)
+        );
         Ok(())
     }
 
@@ -1121,9 +1193,15 @@ impl EdlSession {
             .map_err(|_| EdlError::Session("Image sector count exceeds usize".into()))?;
         ltbox_core::live!(
             log,
-            "[EDL] {} {part_name} ← {} ({file_len} bytes, {num_sectors} sectors, LUN {lun})",
-            tr("log_edl_flash_cmd"),
-            image.display()
+            "[EDL] {}",
+            ltbox_core::tr_args!(
+                "log_edl_flash_image",
+                part = part_name,
+                path = image.display(),
+                size = ltbox_core::log_format::bytes(file_len),
+                sectors = num_sectors,
+                lun = lun
+            )
         );
         let transfer_bytes =
             padded_transfer_bytes(num_sectors, self.dev.fh_config().storage_sector_size)?;
@@ -1142,7 +1220,11 @@ impl EdlSession {
             },
         )
         .map_err(|e| EdlError::Session(format!("Partition write failed: {e}")))?;
-        ltbox_core::live!(log, "[EDL] {} {part_name}", tr("log_edl_flashed"));
+        ltbox_core::live!(
+            log,
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_flashed", part = part_name)
+        );
         Ok(())
     }
 
@@ -1167,9 +1249,7 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_lun_total_sectors")
-                .replace("{lun}", &lun.to_string())
-                .replace("{total}", &total.to_string())
+            ltbox_core::tr_args!("log_edl_lun_total_sectors", lun = lun, total = total)
         );
         Ok(total)
     }
@@ -1188,10 +1268,12 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_dump_lun_cmd")
-                .replace("{lun}", &lun.to_string())
-                .replace("{path}", &output.display().to_string())
-                .replace("{total}", &total.to_string())
+            ltbox_core::tr_args!(
+                "log_edl_dump_lun_cmd",
+                lun = lun,
+                path = output.display(),
+                total = total
+            )
         );
         let sectors = usize::try_from(total)
             .map_err(|_| EdlError::Session("LUN sector count exceeds usize".into()))?;
@@ -1203,7 +1285,7 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_dumped_lun").replace("{lun}", &lun.to_string())
+            ltbox_core::tr_args!("log_edl_dumped_lun", lun = lun)
         );
         Ok(())
     }
@@ -1242,11 +1324,13 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_flash_lun_cmd")
-                .replace("{lun}", &lun.to_string())
-                .replace("{path}", &image.display().to_string())
-                .replace("{bytes}", &file_len.to_string())
-                .replace("{sectors}", &num_sectors.to_string())
+            ltbox_core::tr_args!(
+                "log_edl_flash_lun_cmd",
+                lun = lun,
+                path = image.display(),
+                bytes = file_len,
+                sectors = num_sectors
+            )
         );
         let transfer_bytes =
             padded_transfer_bytes(num_sectors, self.dev.fh_config().storage_sector_size)?;
@@ -1267,7 +1351,7 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_flashed_lun").replace("{lun}", &lun.to_string())
+            ltbox_core::tr_args!("log_edl_flashed_lun", lun = lun)
         );
         Ok(())
     }
@@ -1286,11 +1370,13 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_erase_part_cmd")
-                .replace("{part}", part_name)
-                .replace("{lun}", &lun.to_string())
-                .replace("{start}", start_sector)
-                .replace("{sectors}", &num_sectors.to_string())
+            ltbox_core::tr_args!(
+                "log_edl_erase_part_cmd",
+                part = part_name,
+                lun = lun,
+                start = start_sector,
+                sectors = num_sectors
+            )
         );
         if part_name == "efisp" {
             // On GBL devices, Firehose <erase> can read back as zero within
@@ -1313,7 +1399,14 @@ impl EdlSession {
             let mut last_percent = None;
             ltbox_core::live!(
                 log,
-                "[EDL] efisp: programming {bytes} zero bytes (LUN {lun}, start {start_sector})"
+                "[EDL] {}",
+                ltbox_core::tr_args!(
+                    "log_edl_zero_fill",
+                    part = part_name,
+                    size = ltbox_core::log_format::bytes(bytes),
+                    lun = lun,
+                    start = start_sector
+                )
             );
             qdl::firehose_program_storage_with_progress(
                 &mut self.dev,
@@ -1335,7 +1428,7 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_erased_part").replace("{part}", part_name)
+            ltbox_core::tr_args!("log_edl_erased_part", part = part_name)
         );
         Ok(())
     }
@@ -1395,10 +1488,10 @@ impl EdlSession {
         lun: u8,
         log: &mut Vec<String>,
     ) -> Result<()> {
-        ltbox_core::live!(
+        ltbox_core::live_debug!(
             log,
-            "[EDL] {} '{part_name}' on LUN {lun}...",
-            tr("log_edl_lookup_partition")
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_lookup_partition", part = part_name, lun = lun)
         );
         let (start, end) = self.find_partition(part_name, slot, lun)?;
         let num_sectors = Self::partition_span_sectors(part_name, start, end)?;
@@ -1414,10 +1507,10 @@ impl EdlSession {
         lun: u8,
         log: &mut Vec<String>,
     ) -> Result<()> {
-        ltbox_core::live!(
+        ltbox_core::live_debug!(
             log,
-            "[EDL] {} '{part_name}' on LUN {lun}...",
-            tr("log_edl_lookup_partition")
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_lookup_partition", part = part_name, lun = lun)
         );
         let (start, end) = self.find_partition(part_name, slot, lun)?;
         let span = Self::partition_span_sectors(part_name, start, end)?;
@@ -1442,9 +1535,15 @@ impl EdlSession {
         }
         ltbox_core::live!(
             log,
-            "[EDL] {} {part_name} ← {} ({file_len} bytes, {num_sectors} sectors)",
-            tr("log_edl_flash_cmd"),
-            image.display()
+            "[EDL] {}",
+            ltbox_core::tr_args!(
+                "log_edl_flash_image",
+                part = part_name,
+                path = image.display(),
+                size = ltbox_core::log_format::bytes(file_len),
+                sectors = num_sectors,
+                lun = lun
+            )
         );
 
         let transfer_bytes =
@@ -1464,7 +1563,11 @@ impl EdlSession {
             },
         )
         .map_err(|e| EdlError::Session(format!("Partition write failed: {e}")))?;
-        ltbox_core::live!(log, "[EDL] {} {part_name}", tr("log_edl_flashed"));
+        ltbox_core::live!(
+            log,
+            "[EDL] {}",
+            ltbox_core::tr_args!("log_edl_flashed", part = part_name)
+        );
         Ok(())
     }
 
@@ -1487,7 +1590,7 @@ impl EdlSession {
             ltbox_core::live!(
                 log,
                 "[EDL] {}",
-                tr("log_edl_reboot_handoff_error").replace("{error}", &e.to_string())
+                ltbox_core::tr_args!("log_edl_reboot_handoff_error", error = e)
             );
         }
     }
@@ -1519,7 +1622,7 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[Flash] {}",
-            tr("live_flash_set_bootable").replace("{lun}", &XBL_A_LUN.to_string())
+            ltbox_core::tr_args!("live_flash_set_bootable", lun = XBL_A_LUN)
         );
         qdl::firehose_set_bootable(&mut self.dev, XBL_A_LUN)
             .map_err(|e| EdlError::Session(format!("setbootablestoragedrive failed: {e}")))
@@ -1629,9 +1732,8 @@ impl EdlSession {
         for xml_path in program_xmls {
             ltbox_core::live!(
                 log,
-                "[EDL] {} {}",
-                tr("log_edl_flash_cmd"),
-                xml_path.display()
+                "[EDL] {}",
+                ltbox_core::tr_args!("log_edl_flash_cmd", path = xml_path.display())
             );
             self.flash_one_rawprogram(xml_path, wipe, log)?;
         }
@@ -1645,7 +1747,7 @@ impl EdlSession {
             ltbox_core::live!(
                 log,
                 "[EDL] {}",
-                tr("log_edl_patch_xml_cmd").replace("{path}", &display_name)
+                ltbox_core::tr_args!("log_edl_patch_xml_cmd", path = display_name)
             );
             self.apply_patch_xml(xml_path, log)?;
         }
@@ -1674,9 +1776,8 @@ impl EdlSession {
         for xml_path in program_xmls {
             ltbox_core::live!(
                 log,
-                "[EDL] {} {}",
-                tr("log_edl_flash_cmd"),
-                xml_path.display()
+                "[EDL] {}",
+                ltbox_core::tr_args!("log_edl_flash_cmd", path = xml_path.display())
             );
             // `wipe = true` here only means "do not skip userdata/metadata":
             // `flash_one_rawprogram` writes every node verbatim and the
@@ -1691,7 +1792,7 @@ impl EdlSession {
             ltbox_core::live!(
                 log,
                 "[EDL] {}",
-                tr("log_edl_patch_xml_cmd").replace("{path}", &display_name)
+                ltbox_core::tr_args!("log_edl_patch_xml_cmd", path = display_name)
             );
             self.apply_patch_xml(xml_path, log)?;
         }
@@ -1815,7 +1916,7 @@ impl EdlSession {
                             ltbox_core::live!(
                                 log,
                                 "[EDL] {}",
-                                tr("log_edl_skip_keep_data").replace("{label}", label)
+                                ltbox_core::tr_args!("log_edl_skip_keep_data", label = label)
                             );
                             continue;
                         }
@@ -1858,9 +1959,11 @@ impl EdlSession {
             ltbox_core::live!(
                 log,
                 "[EDL] {}",
-                tr("log_edl_skip_image_missing")
-                    .replace("{label}", &label)
-                    .replace("{path}", &image_path.display().to_string())
+                ltbox_core::tr_args!(
+                    "log_edl_skip_image_missing",
+                    label = label,
+                    path = image_path.display()
+                )
             );
             return Ok(());
         }
@@ -1895,18 +1998,17 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_flash_program_cmd")
-                .replace("{label}", &label)
-                .replace(
-                    "{image}",
-                    image_path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or(""),
-                )
-                .replace("{lun}", &lun.to_string())
-                .replace("{start}", start_sector)
-                .replace("{sectors}", &num_sectors.to_string())
+            ltbox_core::tr_args!(
+                "log_edl_flash_program_cmd",
+                label = label,
+                image = image_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(""),
+                lun = lun,
+                start = start_sector,
+                sectors = num_sectors
+            )
         );
 
         self.guard_node_within_lun(&ctx, lun, start_sector, num_sectors, log)?;
@@ -1959,10 +2061,12 @@ impl EdlSession {
         ltbox_core::live!(
             log,
             "[EDL] {}",
-            tr("log_edl_erase_lun_cmd")
-                .replace("{lun}", &lun.to_string())
-                .replace("{start}", start_sector)
-                .replace("{sectors}", &num_sectors.to_string())
+            ltbox_core::tr_args!(
+                "log_edl_erase_lun_cmd",
+                lun = lun,
+                start = start_sector,
+                sectors = num_sectors
+            )
         );
         send_firehose_erase(&mut self.dev, num_sectors, lun, start_sector)
             .map_err(|e| EdlError::Session(format!("Erase failed: {e}")))?;
@@ -1993,15 +2097,17 @@ impl EdlSession {
             let start_sector = node.attribute("start_sector").unwrap_or("0");
             let value = node.attribute("value").unwrap_or("");
 
-            ltbox_core::live!(
+            ltbox_core::live_debug!(
                 log,
                 "[EDL] {}",
-                tr("log_edl_patch_lun_cmd")
-                    .replace("{lun}", &lun.to_string())
-                    .replace("{start}", start_sector)
-                    .replace("{offset}", &byte_off.to_string())
-                    .replace("{bytes}", &size.to_string())
-                    .replace("{value}", value)
+                ltbox_core::tr_args!(
+                    "log_edl_patch_lun_cmd",
+                    lun = lun,
+                    start = start_sector,
+                    offset = byte_off,
+                    bytes = size,
+                    value = value
+                )
             );
             qdl::firehose_patch(
                 &mut self.dev,
@@ -2682,14 +2788,15 @@ mod tests {
             !plan.iter().any(|entry| entry.label == "frp"),
             "frp must not be pre-erased"
         );
-        let template = "erase {label} (LUN {lun}, start {start}, {sectors} sectors)";
+        // Render without mutating the process-global GUI translator.
+        let template = "Erase {label}: LUN {lun}, sector {start}, {sectors} sectors";
         assert_eq!(
             plan[0].log_line_with_template(template),
-            "[EDL] erase metadata (LUN 0, start 8192, 2048 sectors)"
+            "[EDL] Erase metadata: LUN 0, sector 8192, 2048 sectors"
         );
         assert_eq!(
             plan[1].log_line_with_template(template),
-            "[EDL] erase userdata_b (LUN 3, start 65536, 8192 sectors)"
+            "[EDL] Erase userdata_b: LUN 3, sector 65536, 8192 sectors"
         );
     }
 

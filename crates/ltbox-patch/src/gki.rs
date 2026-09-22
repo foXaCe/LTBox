@@ -94,16 +94,19 @@ pub fn patch_boot(work_dir: &Path, kernel_src: &Path, log: &mut Vec<String>) -> 
 
     // Kernel-version sanity check — diagnostic only, catches wrong-kernel-family zips.
     if let Some(ver) = extract_linux_version(&kernel_dst) {
-        ltbox_core::live!(log, "[GKI] {}: {ver}", tr("log_gki_stock_kver"));
+        ltbox_core::live!(
+            log,
+            "[GKI] {}",
+            ltbox_core::tr_args!("log_gki_stock_kver", version = ver)
+        );
     } else {
         ltbox_core::live!(log, "[GKI] {}", tr("log_gki_stock_kver_missing"));
     }
 
     ltbox_core::live!(
         log,
-        "[GKI] {} {}",
-        tr("log_gki_extracting_kernel"),
-        kernel_src.display()
+        "[GKI] {}",
+        ltbox_core::tr_args!("log_gki_extracting_kernel", path = kernel_src.display())
     );
     match ext.as_deref() {
         Some("zip") => extract_kernel_from_zip(kernel_src, &kernel_dst, log)?,
@@ -112,7 +115,11 @@ pub fn patch_boot(work_dir: &Path, kernel_src: &Path, log: &mut Vec<String>) -> 
     }
 
     if let Some(ver) = extract_linux_version(&kernel_dst) {
-        ltbox_core::live!(log, "[GKI] {}: {ver}", tr("log_gki_replacement_kver"));
+        ltbox_core::live!(
+            log,
+            "[GKI] {}",
+            ltbox_core::tr_args!("log_gki_replacement_kver", version = ver)
+        );
     } else {
         ltbox_core::live!(log, "[GKI] {}", tr("log_gki_replacement_kver_missing"));
     }
@@ -192,10 +199,12 @@ fn extract_kernel_from_boot_img(
     let _ = fs::remove_dir_all(&scratch);
     ltbox_core::live!(
         log,
-        "[GKI] {} {} → kernel ({} bytes)",
-        tr("log_gki_staged"),
-        boot_img.display(),
-        copied
+        "[GKI] {}",
+        ltbox_core::tr_args!(
+            "log_gki_staged",
+            source = boot_img.display(),
+            size = ltbox_core::log_format::bytes(copied)
+        )
     );
     Ok(())
 }
@@ -266,9 +275,12 @@ fn extract_kernel_from_zip(zip_path: &Path, dst: &Path, log: &mut Vec<String>) -
     drop(entry);
     ltbox_core::live!(
         log,
-        "[GKI] {} {name} → kernel ({} bytes)",
-        tr("log_gki_staged"),
-        copied
+        "[GKI] {}",
+        ltbox_core::tr_args!(
+            "log_gki_staged",
+            source = name,
+            size = ltbox_core::log_format::bytes(copied)
+        )
     );
     Ok(())
 }

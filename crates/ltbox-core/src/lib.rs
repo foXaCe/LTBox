@@ -16,6 +16,7 @@ pub mod lenovo_info;
 pub mod lenovo_ota;
 pub mod lenovo_qfil;
 pub mod live_sink;
+pub mod log_format;
 pub mod model;
 pub mod obf;
 pub mod partition_lun;
@@ -26,16 +27,25 @@ pub mod xml;
 
 pub use error::{LtboxError, Result};
 
-/// Echo a line to stdout, the in-process live sink, and the caller's
-/// `&mut Vec<String>`. Don't re-extend the closure's Vec post-flow —
-/// the sink already streamed every line.
+/// Send a line to the in-process sink and the caller's `&mut Vec<String>`.
+/// Echo to stdout only without a GUI consumer, avoiding a second copy through
+/// its native pipe tap. Don't re-extend the closure's Vec post-flow.
 #[macro_export]
 macro_rules! live {
     ($log:expr, $($arg:tt)*) => {{
         let _line = format!($($arg)*);
-        println!("{}", _line);
-        $crate::live_sink::push(_line.clone());
+        $crate::live_sink::emit($crate::live_sink::Entry::info(_line.clone()));
         $log.push(_line);
+    }};
+}
+
+/// Emit diagnostic detail. Saved in the full log, hidden in the normal GUI log.
+#[macro_export]
+macro_rules! live_debug {
+    ($log:expr, $($arg:tt)*) => {{
+        let _line = format!($($arg)*);
+        $crate::live_sink::emit($crate::live_sink::Entry::debug(_line.clone()));
+        $log.push(format!("[Debug] {}", _line));
     }};
 }
 
@@ -64,13 +74,9 @@ macro_rules! live {
 #[macro_export]
 macro_rules! tr_args {
     ($key:expr $(, $name:ident = $val:expr)* $(,)?) => {{
-        let mut __s = $crate::i18n::tr($key);
-        $(
-            __s = __s.replace(
-                concat!("{", stringify!($name), "}"),
-                &format!("{}", $val),
-            );
-        )*
-        __s
+        $crate::i18n::format_template(
+            &$crate::i18n::tr($key),
+            &[$((stringify!($name), format!("{}", $val))),*],
+        )
     }};
 }

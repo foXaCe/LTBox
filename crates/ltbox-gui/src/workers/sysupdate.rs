@@ -8,6 +8,15 @@ use crate::{
 };
 use ltbox_core::tr_args;
 
+fn package_reinstall_succeeded(output: &str, package: &str) -> bool {
+    let prefix = format!("Package {package} installed for user: ");
+    output.lines().any(|line| {
+        line.trim()
+            .strip_prefix(&prefix)
+            .is_some_and(|user| user.parse::<u32>().is_ok())
+    })
+}
+
 pub(crate) fn sysupdate_worker(
     action: SysUpdateAction,
     rescue_folder: Option<String>,
@@ -97,23 +106,39 @@ pub(crate) fn sysupdate_worker(
                 .map_err(|e| e.to_string())?;
 
             ltbox_core::live!(log, "[SysUpdate] {}", phases.marker(3));
+            let mut succeeded = 0;
             for pkg in &packages {
                 let _ = adb.shell(&format!("pm clear {pkg}"));
 
                 match adb.shell(&format!("pm uninstall -k --user 0 {pkg}")) {
-                    Ok(out) if out.contains("Success") => ltbox_core::live!(
+                    Ok(out) if out.trim() == "Success" => {
+                        succeeded += 1;
+                        ltbox_core::live!(
+                            log,
+                            "[ADB] {}",
+                            tr_args!("live_adb_uninstalled", package = pkg)
+                        );
+                    }
+                    Ok(out) => ltbox_core::live!(
                         log,
                         "[ADB] {}",
-                        tr_args!("live_adb_uninstalled", package = pkg)
+                        tr_args!("live_adb_uninstall_failed", package = pkg, error = out)
                     ),
-                    Ok(out) => ltbox_core::live!(log, "[ADB] {pkg}: {out}"),
-                    Err(e) => ltbox_core::live!(log, "[ADB] {pkg}: {e}"),
+                    Err(e) => ltbox_core::live!(
+                        log,
+                        "[ADB] {}",
+                        tr_args!("live_adb_uninstall_failed", package = pkg, error = e)
+                    ),
                 }
             }
             ltbox_core::live!(
                 log,
                 "[SysUpdate] {}",
-                ltbox_core::i18n::tr("live_sysupdate_disabled")
+                tr_args!(
+                    "live_sysupdate_disabled",
+                    success = succeeded,
+                    total = packages.len()
+                )
             );
             Ok(log)
         }
@@ -125,21 +150,37 @@ pub(crate) fn sysupdate_worker(
                 .map_err(|e| e.to_string())?;
 
             ltbox_core::live!(log, "[SysUpdate] {}", phases.marker(3));
+            let mut succeeded = 0;
             for pkg in &packages {
                 match adb.shell(&format!("cmd package install-existing {pkg}")) {
-                    Ok(out) if out.to_lowercase().contains("installed") => ltbox_core::live!(
+                    Ok(out) if package_reinstall_succeeded(&out, pkg) => {
+                        succeeded += 1;
+                        ltbox_core::live!(
+                            log,
+                            "[ADB] {}",
+                            tr_args!("live_adb_reinstalled", package = pkg)
+                        );
+                    }
+                    Ok(out) => ltbox_core::live!(
                         log,
                         "[ADB] {}",
-                        tr_args!("live_adb_reinstalled", package = pkg)
+                        tr_args!("live_adb_reinstall_failed", package = pkg, error = out)
                     ),
-                    Ok(out) => ltbox_core::live!(log, "[ADB] {pkg}: {out}"),
-                    Err(e) => ltbox_core::live!(log, "[ADB] {pkg}: {e}"),
+                    Err(e) => ltbox_core::live!(
+                        log,
+                        "[ADB] {}",
+                        tr_args!("live_adb_reinstall_failed", package = pkg, error = e)
+                    ),
                 }
             }
             ltbox_core::live!(
                 log,
                 "[SysUpdate] {}",
-                ltbox_core::i18n::tr("live_sysupdate_enabled")
+                tr_args!(
+                    "live_sysupdate_enabled",
+                    success = succeeded,
+                    total = packages.len()
+                )
             );
             Ok(log)
         }
@@ -633,6 +674,27 @@ fn rescue_capability_error(profile: &ltbox_core::model::ModelCapabilities) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn package_result_does_not_treat_not_installed_as_success() {
+        let package = "com.lenovo.ota";
+        assert!(package_reinstall_succeeded(
+            "Package com.lenovo.ota installed for user: 0\r\n",
+            package
+        ));
+        assert!(package_reinstall_succeeded(
+            "Package com.lenovo.ota installed for user: 10",
+            package
+        ));
+        for output in [
+            "Package com.lenovo.ota not installed",
+            "Package other installed for user: 0",
+            "Error: package not installed for 0",
+            "",
+        ] {
+            assert!(!package_reinstall_succeeded(output, package), "{output}");
+        }
+    }
 
     #[test]
     fn disabled_rescue_models_are_rejected_before_device_access() {
