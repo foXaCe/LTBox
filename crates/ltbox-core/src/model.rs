@@ -3,7 +3,8 @@
 mod capabilities;
 pub use capabilities::{
     ModelCapabilities, RollbackPolicy, SUPPORTED_MODELS, capabilities,
-    capabilities_from_fingerprint, fingerprint_capabilities,
+    capabilities_from_fingerprint, fingerprint_capabilities, fingerprint_model_lacking,
+    fingerprint_models,
 };
 
 /// Model token reported by Legion Tab Y700 (2023) firmware.

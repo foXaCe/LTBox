@@ -15,7 +15,7 @@ impl App {
         {
             self.error_msg = Some(tr_args!(
                 "model_unsupported",
-                model = "TB376FC / TB390FU / TB391FC"
+                model = self.device.model.as_str()
             ));
             return Task::none();
         }

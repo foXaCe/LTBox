@@ -27,7 +27,7 @@ pub(crate) fn sysupdate_worker(
 ) -> Result<Vec<String>, String> {
     let mut log = Vec::new();
     if action == SysUpdateAction::Rescue
-        && let Some(error) = rescue_capability_error(ltbox_core::model::capabilities(&device_model))
+        && let Some(error) = rescue_capability_error(&device_model)
     {
         return Err(error);
     }
@@ -357,7 +357,7 @@ pub(crate) fn sysupdate_worker(
                         if let Some(error) = ltbox_patch::avb::build_fingerprint(&info)
                             .as_deref()
                             .and_then(|fp| {
-                                ltbox_core::model::fingerprint_capabilities(fp)
+                                ltbox_core::model::fingerprint_models(fp)
                                     .find_map(rescue_capability_error)
                             })
                         {
@@ -658,17 +658,10 @@ fn rescue_partition_lun(part_name: &str) -> Option<u8> {
     ltbox_core::partition_lun::lun_for_partition(part_name)
 }
 
-fn rescue_capability_error(profile: &ltbox_core::model::ModelCapabilities) -> Option<String> {
-    (!profile.rescue).then(|| {
-        tr_args!(
-            "model_unsupported",
-            model = if profile.requires_sahara_manifest {
-                "TB323FU"
-            } else {
-                "TB376FC / TB390FU / TB391FC"
-            }
-        )
-    })
+/// Refuse Rescue on a model whose profile disables it, naming that model.
+fn rescue_capability_error(model: &str) -> Option<String> {
+    (!ltbox_core::model::capabilities(model).rescue)
+        .then(|| tr_args!("model_unsupported", model = model))
 }
 
 #[cfg(test)]
@@ -698,7 +691,7 @@ mod tests {
 
     #[test]
     fn disabled_rescue_models_are_rejected_before_device_access() {
-        for model in ["TB323FU", "TB376FC", "TB390FU", "TB391FC"] {
+        for model in ["TB323FU", "TB324ZC", "TB376FC", "TB390FU", "TB391FC"] {
             let phases = PhaseReporter::from_labels(vec!["unused".into()]);
             let error = sysupdate_worker(
                 SysUpdateAction::Rescue,
@@ -709,10 +702,7 @@ mod tests {
                 phases,
             )
             .expect_err("unsupported Rescue must fail before loader/device access");
-            assert_eq!(
-                error,
-                rescue_capability_error(ltbox_core::model::capabilities(model)).unwrap()
-            );
+            assert_eq!(error, rescue_capability_error(model).unwrap());
         }
     }
 

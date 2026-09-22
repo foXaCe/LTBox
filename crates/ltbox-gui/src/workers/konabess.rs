@@ -144,15 +144,15 @@ impl KonaBessInspectionBackend for DeviceBackend<'_> {
             let first = profiles.next();
             profiles.find(|p| p.root_uses_gbl).or(first)
         });
-        if !ltbox_core::model::capabilities(self.device_model).konabess
-            || fingerprint.as_deref().is_some_and(|fp| {
-                ltbox_core::model::fingerprint_capabilities(fp).any(|p| !p.konabess)
-            })
-        {
-            return Err(tr_args!(
-                "model_unsupported",
-                model = "TB376FC / TB390FU / TB391FC"
-            ));
+        let unsupported = (!ltbox_core::model::capabilities(self.device_model).konabess)
+            .then_some(self.device_model)
+            .or_else(|| {
+                fingerprint
+                    .as_deref()
+                    .and_then(|fp| ltbox_core::model::fingerprint_model_lacking(fp, |p| p.konabess))
+            });
+        if let Some(model) = unsupported {
+            return Err(tr_args!("model_unsupported", model = model));
         }
         match exploit_gate_kind(image_capabilities, self.uses_gbl) {
             ExploitGateKind::EfispGbl => {
@@ -306,10 +306,7 @@ pub(crate) fn konabess_inspection_worker(
 ) -> Result<KonaBessInspectionResult, String> {
     let mut log = Vec::new();
     if !ltbox_core::model::capabilities(&device_model).konabess {
-        return Err(tr_args!(
-            "model_unsupported",
-            model = "TB376FC / TB390FU / TB391FC"
-        ));
+        return Err(tr_args!("model_unsupported", model = device_model.as_str()));
     }
     let work_dir = ltbox_core::app_paths::work_dir_for("konabess");
     let _ = std::fs::remove_dir_all(&work_dir);
@@ -606,14 +603,11 @@ pub(crate) fn konabess_flash_worker(
     let prepared_fingerprint = ltbox_patch::avb::extract_image_avb_info(&prepared.vendor_boot)
         .ok()
         .and_then(|info| ltbox_patch::avb::build_fingerprint(&info));
-    if prepared_fingerprint
+    if let Some(model) = prepared_fingerprint
         .as_deref()
-        .is_some_and(|fp| ltbox_core::model::fingerprint_capabilities(fp).any(|p| !p.konabess))
+        .and_then(|fp| ltbox_core::model::fingerprint_model_lacking(fp, |p| p.konabess))
     {
-        return Err(tr_args!(
-            "model_unsupported",
-            model = "TB376FC / TB390FU / TB391FC"
-        ));
+        return Err(tr_args!("model_unsupported", model = model));
     }
     // The fingerprint selects the route; execute_flash separately verifies
     // the inspection ABL and the current session ABL before trusting it.

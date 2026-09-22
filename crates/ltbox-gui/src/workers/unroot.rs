@@ -33,10 +33,7 @@ pub(crate) fn unroot_worker(
     // to system.
     let edl_start = matches!(conn, ConnectionStatus::Edl);
     if !ltbox_core::model::capabilities(&device_model).unroot {
-        return Err(tr_args!(
-            "model_unsupported",
-            model = "TB376FC / TB390FU / TB391FC"
-        ));
+        return Err(tr_args!("model_unsupported", model = device_model.as_str()));
     }
     if !unroot_connection_ready(conn) {
         return Err(tr("err_unroot_connection_required"));
@@ -65,13 +62,10 @@ pub(crate) fn unroot_worker(
     }
     if let Ok(info) = ltbox_patch::avb::extract_image_avb_info(&root_image_path)
         && let Some(fingerprint) = ltbox_patch::avb::build_fingerprint(&info)
-        && ltbox_core::model::fingerprint_capabilities(&fingerprint)
-            .any(|capabilities| !capabilities.unroot)
+        && let Some(model) =
+            ltbox_core::model::fingerprint_model_lacking(&fingerprint, |c| c.unroot)
     {
-        return Err(tr_args!(
-            "model_unsupported",
-            model = "TB376FC / TB390FU / TB391FC"
-        ));
+        return Err(tr_args!("model_unsupported", model = model));
     }
     if !ltbox_core::model::capabilities(&device_model).root_uses_gbl {
         ltbox_patch::avb::verify_root_backup(&root_image_path, vbmeta_path.as_deref(), base_part)

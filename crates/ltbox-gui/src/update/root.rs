@@ -473,7 +473,7 @@ impl App {
                 if !ltbox_core::model::capabilities(&self.device.model).root {
                     self.error_msg = Some(tr_args!(
                         "model_unsupported",
-                        model = "TB376FC / TB390FU / TB391FC"
+                        model = self.device.model.as_str()
                     ));
                     return Task::none();
                 }
@@ -811,10 +811,7 @@ mod tests {
             assert!(!app.operation.is_running());
             assert_eq!(
                 app.error_msg,
-                Some(tr_args!(
-                    "model_unsupported",
-                    model = "TB376FC / TB390FU / TB391FC"
-                ))
+                Some(tr_args!("model_unsupported", model = model))
             );
             app.error_msg = None;
             let _ = app.update_unroot(UnrootMsg::UnrootExecStart);

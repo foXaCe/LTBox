@@ -104,10 +104,7 @@ pub(crate) fn root_worker(
 ) -> Result<RootWorkerResult, String> {
     let mut log = Vec::new();
     if !ltbox_core::model::capabilities(&device_model).root {
-        return Err(tr_args!(
-            "model_unsupported",
-            model = "TB376FC / TB390FU / TB391FC"
-        ));
+        return Err(tr_args!("model_unsupported", model = device_model.as_str()));
     }
     if provider == Some(Provider::KernelSULocal) {
         local_ksu
@@ -461,11 +458,11 @@ pub(crate) fn root_worker(
                     })?;
                 let image_capabilities =
                     || ltbox_core::model::fingerprint_capabilities(&root_image_fingerprint);
-                if image_capabilities().any(|capabilities| !capabilities.root) {
-                    return Err(tr_args!(
-                        "model_unsupported",
-                        model = "TB376FC / TB390FU / TB391FC"
-                    ));
+                if let Some(model) = ltbox_core::model::fingerprint_model_lacking(
+                    &root_image_fingerprint,
+                    |capabilities| capabilities.root,
+                ) {
+                    return Err(tr_args!("model_unsupported", model = model));
                 }
                 if is_gki_route && image_capabilities().any(|capabilities| !capabilities.gki_root) {
                     return Err(tr_args!("model_unsupported", model = device_model.as_str()));
@@ -817,11 +814,11 @@ mod tests {
             );
             assert_eq!(
                 result.unwrap_err(),
-                tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC")
+                tr_args!("model_unsupported", model = model)
             );
         }
         for model in ["TB376FC", "TB390FU", "TB391FC"] {
-            let expected = tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC");
+            let expected = tr_args!("model_unsupported", model = model);
             let result = super::super::unroot::unroot_worker(
                 String::new(),
                 crate::UnrootType::MagiskLkm,

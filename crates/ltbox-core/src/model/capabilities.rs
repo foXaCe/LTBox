@@ -193,6 +193,25 @@ pub fn fingerprint_capabilities(fp: &str) -> impl Iterator<Item = &'static Model
         .map(|(_, profile)| *profile)
 }
 
+/// Model names explicitly named in a fingerprint, in [`fingerprint_capabilities`]
+/// order. Use these to name the model in a message instead of inferring it from
+/// a profile's fields.
+pub fn fingerprint_models(fp: &str) -> impl Iterator<Item = &'static str> + '_ {
+    PROFILES
+        .iter()
+        .filter(move |(name, _)| token_match(fp, name))
+        .map(|(name, _)| *name)
+}
+
+/// First model named in a fingerprint whose profile does not satisfy
+/// `supported`, for refusing an image and naming the model it was built for.
+pub fn fingerprint_model_lacking(
+    fp: &str,
+    supported: impl Fn(&ModelCapabilities) -> bool,
+) -> Option<&'static str> {
+    fingerprint_models(fp).find(|model| !supported(capabilities(model)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +240,42 @@ mod tests {
             capabilities_from_fingerprint("qti/TB324ZC/TB324ZC:16/build:user/release-keys"),
             Some(tb324zc)
         );
+    }
+
+    #[test]
+    fn fingerprint_models_name_each_exact_token() {
+        let names: Vec<_> =
+            fingerprint_models("qti/TB324ZC/TB324ZC:16/build:user/release-keys").collect();
+        assert_eq!(names, ["TB324ZC"]);
+        let names: Vec<_> = fingerprint_models("Lenovo/TB390FU/TB390FU:15/build").collect();
+        assert_eq!(names, ["TB390FU"]);
+        assert_eq!(fingerprint_models("Lenovo/TB324ZCextra/x:15").count(), 0);
+    }
+
+    #[test]
+    fn fingerprint_model_lacking_names_the_restricted_token() {
+        let xiaoxin = "Lenovo/TB390FU/TB390FU:15/build";
+        assert_eq!(
+            fingerprint_model_lacking(xiaoxin, |c| c.root),
+            Some("TB390FU")
+        );
+        assert_eq!(
+            fingerprint_model_lacking(xiaoxin, |c| c.rescue),
+            Some("TB390FU")
+        );
+        let tb323fu = "Lenovo/TB323FU/TB323FU:14/build";
+        assert_eq!(fingerprint_model_lacking(tb323fu, |c| c.root), None);
+        assert_eq!(
+            fingerprint_model_lacking(tb323fu, |c| c.rescue),
+            Some("TB323FU")
+        );
+        // A permissive token must not hide a restricted one.
+        let mixed = "Lenovo/TB320FC/TB376FC:15/build";
+        assert_eq!(
+            fingerprint_model_lacking(mixed, |c| c.root),
+            Some("TB376FC")
+        );
+        assert_eq!(fingerprint_model_lacking("unknown", |c| c.root), None);
     }
 
     #[test]

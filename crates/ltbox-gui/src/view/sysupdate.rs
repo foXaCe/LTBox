@@ -186,10 +186,8 @@ impl App {
         .spacing(8.0)
         .width(Length::Fill);
         let rescue_sub = if rescue_disabled {
-            if self.requires_sahara_manifest() {
+            if self.requires_sahara_manifest() || self.is_xiaoxin_pro13() {
                 tr_args!("model_unsupported", model = self.device.model.as_str())
-            } else if self.is_xiaoxin_pro13() {
-                tr_args!("model_unsupported", model = "TB376FC / TB390FU / TB391FC")
             } else {
                 self.t("sysupdate_rescue_req").to_string()
             }
