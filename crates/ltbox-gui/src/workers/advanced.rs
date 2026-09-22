@@ -279,9 +279,10 @@ pub(crate) fn advanced_file_worker(
             }
         }
         AdvAction::PatchDevinfo => {
-            // Country code lives in both devinfo.img
-            // + persist.img — folder picker, at
-            // least one must exist.
+            // The firmware flash's country step, offline: patch every country
+            // partition image present in the folder (at least one must exist),
+            // with the same field-only rule per partition.
+            use crate::workers::flash::{COUNTRY_PARTITION_BASES, is_field_only_country_partition};
             use ltbox_patch::region::{EU_COUNTRY_CODES as EU, KNOWN_COUNTRY_CODES as KNOWN};
             let Some(new_code) = adv_country.as_deref() else {
                 return Err(ltbox_core::i18n::tr("err_country_target_missing"));
@@ -294,7 +295,10 @@ pub(crate) fn advanced_file_worker(
             }
             let mut any_written = false;
             let mut any_found = false;
-            for name in ["devinfo.img", "persist.img", "oemowninfo.img"] {
+            for base in COUNTRY_PARTITION_BASES.iter().copied() {
+                let field_only = is_field_only_country_partition(base);
+                let name = format!("{base}.img");
+                let name = name.as_str();
                 let src = input.join(name);
                 if !src.exists() {
                     ltbox_core::live!(
@@ -310,15 +314,14 @@ pub(crate) fn advanced_file_worker(
                     "[Country] {}",
                     tr_args!("live_country_processing", path = src.display().to_string())
                 );
-                let detected =
-                    ltbox_patch::region::detect_country_code(&src, KNOWN, name == "persist.img")
-                        .map_err(|e| {
-                            tr_args!(
-                                "err_country_detect_failed",
-                                name = name,
-                                error = e.to_string()
-                            )
-                        })?;
+                let detected = ltbox_patch::region::detect_country_code(&src, KNOWN, field_only)
+                    .map_err(|e| {
+                        tr_args!(
+                            "err_country_detect_failed",
+                            name = name,
+                            error = e.to_string()
+                        )
+                    })?;
                 let Some(old_code) = detected else {
                     ltbox_core::live!(
                         log,
@@ -339,12 +342,7 @@ pub(crate) fn advanced_file_worker(
                 // v2 naming: `<stem>_modified.img`.
                 let output = output_dir.join(format!("{stem}_modified.img"));
                 match ltbox_patch::region::patch_country_code(
-                    &src,
-                    &output,
-                    &old_code,
-                    new_code,
-                    EU,
-                    name == "persist.img",
+                    &src, &output, &old_code, new_code, EU, field_only,
                 ) {
                     Ok(true) => {
                         ltbox_core::live!(

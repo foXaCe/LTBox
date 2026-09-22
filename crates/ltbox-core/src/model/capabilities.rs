@@ -69,6 +69,8 @@ pub struct ModelCapabilities {
     pub rollback_floor_via_fastboot: bool,
     /// Rollback protection and editing policy.
     pub rollback: RollbackPolicy,
+    /// Partitions that carry the device country code, in dump/patch order.
+    pub country_partitions: &'static [&'static str],
 }
 
 const GENERIC: ModelCapabilities = ModelCapabilities {
@@ -86,12 +88,14 @@ const GENERIC: ModelCapabilities = ModelCapabilities {
     region_avb_conversion: true,
     rollback_floor_via_fastboot: false,
     rollback: RollbackPolicy::Standard,
+    country_partitions: &["devinfo", "persist"],
 };
 
 const TB320FC: ModelCapabilities = ModelCapabilities {
     ramdisk_root_uses_boot: true,
     boot_vbmeta_is_hash: true,
     dual_usb: true,
+    country_partitions: &["oemowninfo", "persist"],
     ..GENERIC
 };
 const TB321FU: ModelCapabilities = ModelCapabilities {
@@ -119,6 +123,7 @@ const TB323FU: ModelCapabilities = ModelCapabilities {
     dual_usb: true,
     region_avb_conversion: false,
     rollback: RollbackPolicy::Gbl,
+    country_partitions: &["oemowninfo", "persist"],
     ..GENERIC
 };
 /// TB324ZC — Y700 5G. Shares TB323FU's efisp/GBL route, multi-image Sahara
@@ -131,6 +136,7 @@ const TB324ZC: ModelCapabilities = ModelCapabilities {
     prc_only: true,
     region_avb_conversion: false,
     rollback: RollbackPolicy::Gbl,
+    country_partitions: &["proinfo", "persist"],
     ..GENERIC
 };
 const XIAOXIN_PRO13: ModelCapabilities = ModelCapabilities {
@@ -141,6 +147,7 @@ const XIAOXIN_PRO13: ModelCapabilities = ModelCapabilities {
     rescue: false,
     region_avb_conversion: false,
     rollback: RollbackPolicy::ReadOnly,
+    country_partitions: &["proinfo", "persist"],
     ..GENERIC
 };
 

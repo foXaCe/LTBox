@@ -6243,7 +6243,7 @@ mod tests {
 
     #[test]
     fn country_patch_progress_oemowninfo_expected() {
-        // TB320FC / TB323FU patch oemowninfo instead of devinfo.
+        // TB320FC / TB323FU patch oemowninfo + persist instead of devinfo.
         let mut progress = CountryPatchProgress::new(&["oemowninfo", "persist"]);
         progress.mark_flashed("oemowninfo");
         progress.mark_flashed("persist");

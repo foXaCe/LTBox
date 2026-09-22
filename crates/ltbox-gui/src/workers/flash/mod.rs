@@ -749,44 +749,35 @@ fn decompress_zst_file(
     result
 }
 
-/// Country-code partitions to dump/patch/flash for a model. The TB320FC hardware
-/// path and TB323FU keep the code ONLY in `oemowninfo` (LUN 0); every other model
-/// keeps it in `devinfo` + `persist`. The model is matched against the
-/// vendor_boot AVB fingerprint (works on an EDL-start flash) or the
-/// probe-reported model name.
+/// Country-code partitions to dump/patch/flash for a model, from
+/// [`ModelCapabilities::country_partitions`]. The probe-reported model names
+/// the hardware that holds the code, so it wins; the vendor_boot AVB
+/// fingerprint covers an EDL-start flash with no probed model.
+///
+/// [`ModelCapabilities::country_partitions`]: ltbox_core::model::ModelCapabilities::country_partitions
 fn country_partitions_for(
     device_model: &str,
     firmware_fingerprint: Option<&str>,
 ) -> &'static [&'static str] {
-    let xiaoxin_pro13_sku = ltbox_core::model::XIAOXIN_PRO13_MODELS.iter().any(|m| {
-        firmware_fingerprint
-            .map(|fp| fingerprint_token_match(fp, m))
-            .unwrap_or(false)
-            || fingerprint_token_match(device_model, m)
-    });
-    if xiaoxin_pro13_sku {
-        return &["proinfo", "persist"];
-    }
-    let oemowninfo_sku = ["TB320FC", "TB323FU"].iter().any(|m| {
-        firmware_fingerprint
-            .map(|fp| fingerprint_token_match(fp, m))
-            .unwrap_or(false)
-            || fingerprint_token_match(device_model, m)
-    });
-    if oemowninfo_sku {
-        &["oemowninfo"]
-    } else {
-        &["devinfo", "persist"]
-    }
+    use ltbox_core::model::{capabilities, capabilities_from_fingerprint};
+    capabilities_from_fingerprint(device_model)
+        .or_else(|| firmware_fingerprint.and_then(capabilities_from_fingerprint))
+        .unwrap_or_else(|| capabilities(device_model))
+        .country_partitions
 }
 
-fn is_field_only_country_partition(label: &str) -> bool {
+/// Every partition any model keeps its country code in. The Advanced country
+/// patcher has no model to consult, so it accepts the union.
+pub(crate) const COUNTRY_PARTITION_BASES: &[&str] =
+    &["devinfo", "oemowninfo", "proinfo", "persist"];
+
+/// Country partitions patched field-by-field rather than by raw code match.
+pub(crate) fn is_field_only_country_partition(label: &str) -> bool {
     matches!(label, "persist" | "proinfo")
 }
 
-/// Rewrite the device's country code in the model's country partitions over an
-/// open EDL session: the TB320FC hardware path and TB323FU use `oemowninfo`;
-/// every other model uses `devinfo` + `persist`. Best-effort per partition
+/// Rewrite the device's country code over an open EDL session, in the
+/// partitions [`country_partitions_for`] selects. Best-effort per partition
 /// (logs + continues on failure). Shared by `flash_worker`'s post-flash country
 /// phase and the standalone `change_country_worker`.
 #[allow(clippy::too_many_arguments)]
@@ -1156,43 +1147,56 @@ mod tests {
     #[test]
     fn country_partitions_select_by_model() {
         use super::country_partitions_for;
-        // TB320FC / TB323FU keep the country code only in oemowninfo.
-        assert_eq!(country_partitions_for("TB320FC", None), &["oemowninfo"][..]);
+        let oemowninfo = &["oemowninfo", "persist"][..];
+        let proinfo = &["proinfo", "persist"][..];
+        let devinfo = &["devinfo", "persist"][..];
+        for (model, expected) in [
+            ("TB320FC", oemowninfo),
+            ("LAVIETab9QHD1", oemowninfo),
+            ("TB323FU", oemowninfo),
+            ("TB324ZC", proinfo),
+            ("TB376FC", proinfo),
+            ("TB390FU", proinfo),
+            ("TB391FC", proinfo),
+            ("TB321FU", devinfo),
+            ("TB322FC", devinfo),
+            ("TB520FU", devinfo),
+            ("TB710FU", devinfo),
+            ("TB330FU", devinfo),
+            ("", devinfo),
+        ] {
+            assert_eq!(country_partitions_for(model, None), expected, "{model}");
+        }
+        // The AVB fingerprint selects it on an EDL start with no probed model.
+        for (fingerprint, expected) in [
+            ("Lenovo/TB323FU/TB323FU:14/build", oemowninfo),
+            ("qti/LAVIETab9QHD1/LAVIETab9QHD1:15/build_NEC", oemowninfo),
+            ("qti/TB324ZC/TB324ZC:16/build:user/release-keys", proinfo),
+            ("Lenovo/TB390FU/TB390FU:15/build", proinfo),
+        ] {
+            assert_eq!(
+                country_partitions_for("", Some(fingerprint)),
+                expected,
+                "{fingerprint}"
+            );
+        }
+        // The probed hardware outranks the firmware being flashed onto it.
         assert_eq!(
-            country_partitions_for("LAVIETab9QHD1", None),
-            &["oemowninfo"][..]
+            country_partitions_for("TB324ZC", Some("Lenovo/TB323FU/TB323FU:14/build")),
+            proinfo
         );
-        assert_eq!(country_partitions_for("TB323FU", None), &["oemowninfo"][..]);
-        assert_eq!(
-            country_partitions_for("TB376FC", None),
-            &["proinfo", "persist"][..]
-        );
-        assert_eq!(
-            country_partitions_for("TB390FU", None),
-            &["proinfo", "persist"][..]
-        );
-        assert_eq!(
-            country_partitions_for("TB391FC", None),
-            &["proinfo", "persist"][..]
-        );
-        // Every other model uses devinfo + persist.
-        assert_eq!(
-            country_partitions_for("TB330FU", None),
-            &["devinfo", "persist"][..]
-        );
-        // The AVB fingerprint (EDL-start, no probed model) also selects it.
-        assert_eq!(
-            country_partitions_for("", Some("Lenovo/TB323FU/TB323FU:14/build")),
-            &["oemowninfo"][..]
-        );
-        assert_eq!(
-            country_partitions_for("", Some("qti/LAVIETab9QHD1/LAVIETab9QHD1:15/build_NEC")),
-            &["oemowninfo"][..]
-        );
-        assert_eq!(
-            country_partitions_for("", Some("Lenovo/TB390FU/TB390FU:15/build")),
-            &["proinfo", "persist"][..]
-        );
+    }
+
+    #[test]
+    fn country_partition_bases_cover_every_profile() {
+        for model in ltbox_core::model::SUPPORTED_MODELS {
+            for label in ltbox_core::model::capabilities(model).country_partitions {
+                assert!(
+                    super::COUNTRY_PARTITION_BASES.contains(label),
+                    "{model}: {label}"
+                );
+            }
+        }
     }
 
     #[test]

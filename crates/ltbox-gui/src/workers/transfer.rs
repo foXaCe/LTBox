@@ -427,7 +427,7 @@ const EDL_POST_DUMP_STABILIZE: std::time::Duration = std::time::Duration::from_s
 /// error, not a per-row log line. These carry region/board state that a
 /// subsequent rescue flow cannot reconstruct from scratch. Mirrors v2
 /// `critical_targets` set in `bin/ltbox/actions/edl.py::dump_partitions`.
-const CRITICAL_DUMP_BASES: &[&str] = &["devinfo", "persist", "oemowninfo"];
+const CRITICAL_DUMP_BASES: &[&str] = &["devinfo", "persist", "oemowninfo", "proinfo"];
 
 /// Match a partition label (possibly slot-suffixed) against the critical
 /// base set. `devinfo`, `devinfo_a`, `DEVINFO_B` all match.
@@ -442,7 +442,7 @@ pub(crate) fn is_critical_dump_label(label: &str) -> bool {
 pub(crate) struct CountryPatchProgress {
     /// Labels that must be patched for the run to count as complete. Set
     /// per-run because the country-code partition differs by model
-    /// (`devinfo` on most SKUs, `oemowninfo` on TB320FC / TB323FU).
+    /// (`ModelCapabilities::country_partitions`).
     expected: Vec<String>,
     flashed_or_confirmed: Vec<String>,
     failures: Vec<String>,
@@ -948,6 +948,7 @@ mod tests {
         assert!(is_critical_dump_label("persist"));
         assert!(is_critical_dump_label("devinfo_a"));
         assert!(is_critical_dump_label("OEMOWNINFO_B"));
+        assert!(is_critical_dump_label("proinfo"));
         assert!(!is_critical_dump_label("boot_a"));
     }
 }
