@@ -121,9 +121,12 @@ impl App {
             .selected_target()
             .map(target_label)
             .unwrap_or_else(|| self.t("konabess_target_none").to_string());
-        let target_button =
-            m3_text_button(format!("{}: {target}", self.t("konabess_table_target")))
-                .on_press(Message::KonaBess(KonaBessMsg::KonaBessOpenTarget));
+        let target_button = m3_text_button(tr_args!(
+            "label_value",
+            label = self.t("konabess_table_target"),
+            value = target
+        ))
+        .on_press(Message::KonaBess(KonaBessMsg::KonaBessOpenTarget));
         let import_button = m3_text_button(self.t("konabess_import_button").to_string())
             .on_press(Message::KonaBess(KonaBessMsg::KonaBessSelectImport));
         let mut revert_button = m3_text_button(self.t("konabess_revert_button").to_string());

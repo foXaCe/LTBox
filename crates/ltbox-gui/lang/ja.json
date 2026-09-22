@@ -486,6 +486,7 @@
   "konabess_warning_retargeted": "元の初期対象周波数が削除されたため、残っているレベルへ対象を変更します。",
   "konabess_warning_summary": "端末のテーブルに確認が必要な項目が{count}件あります。",
   "konabess_warning_unknown_export_field": "LTBoxでは使用しないエクスポート項目です。",
+  "label_value": "{label}: {value}",
   "live_adb_checking_device": "デバイスを確認中",
   "live_adb_device_connected": "デバイスが接続されました",
   "live_adb_kernel_branch": "カーネル GKI ブランチ： {branch}",

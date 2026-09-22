@@ -486,6 +486,7 @@
   "konabess_warning_retargeted": "原来的初始目标频率已被删除，因此目标将重新指向剩余级别。",
   "konabess_warning_summary": "设备表中有 {count} 项需要注意。",
   "konabess_warning_unknown_export_field": "LTBox 不使用这个导出字段。",
+  "label_value": "{label}：{value}",
   "live_adb_checking_device": "正在检查设备",
   "live_adb_device_connected": "设备已连接",
   "live_adb_kernel_branch": "内核 GKI 分支：{branch}",

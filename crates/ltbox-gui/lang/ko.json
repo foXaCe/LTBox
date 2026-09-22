@@ -486,6 +486,7 @@
   "konabess_warning_retargeted": "기존 초기 대상 주파수가 삭제되어 남은 레벨로 대상을 다시 지정합니다.",
   "konabess_warning_summary": "기기 테이블에서 확인이 필요한 항목이 {count}개 있습니다.",
   "konabess_warning_unknown_export_field": "LTBox에서 사용하지 않는 내보내기 필드입니다.",
+  "label_value": "{label}: {value}",
   "live_adb_checking_device": "기기 확인 중",
   "live_adb_device_connected": "기기 연결됨",
   "live_adb_kernel_branch": "커널 GKI 브랜치: {branch}",

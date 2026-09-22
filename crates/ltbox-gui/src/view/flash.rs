@@ -571,7 +571,11 @@ impl App {
         };
         let valid = selected && self.flash.bootloader_can_next();
         let verdict_text = if self.flash.uses_gbl() && selected && !analyzing && valid {
-            format!("{}: {}", self.t("efisp_load_label"), self.t(verdict_key))
+            tr_args!(
+                "label_value",
+                label = self.t("efisp_load_label"),
+                value = self.t(verdict_key)
+            )
         } else {
             self.t(verdict_key).to_string()
         };

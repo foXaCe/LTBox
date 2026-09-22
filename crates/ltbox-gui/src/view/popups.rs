@@ -617,9 +617,13 @@ impl App {
         );
         let header = iced::widget::row![title, Space::new().width(Length::Fill), copy_btn]
             .align_y(iced::Alignment::Center);
-        let serial_line = text(format!("{}: {serial}", self.t("device_info_popup_serial")))
-            .size(12)
-            .style(muted_style);
+        let serial_line = text(tr_args!(
+            "label_value",
+            label = self.t("device_info_popup_serial"),
+            value = serial
+        ))
+        .size(12)
+        .style(muted_style);
 
         let body: Element<'_, Message> = match &state {
             DeviceInfoState::Loading => self.popup_loading_view(),
@@ -703,11 +707,19 @@ impl App {
                 let size_str = ltbox_core::lenovo_ota::format_size(update.size_bytes);
 
                 let from_to_row = column![
-                    text(format!("{}: {}", self.t("ota_popup_from"), update.from))
-                        .size(12)
-                        .style(muted_style),
-                    text(format!("{}: {}", self.t("ota_popup_to"), update.to))
-                        .size(theme::text_size::BODY_MEDIUM),
+                    text(tr_args!(
+                        "label_value",
+                        label = self.t("ota_popup_from"),
+                        value = update.from
+                    ))
+                    .size(12)
+                    .style(muted_style),
+                    text(tr_args!(
+                        "label_value",
+                        label = self.t("ota_popup_to"),
+                        value = update.to
+                    ))
+                    .size(theme::text_size::BODY_MEDIUM),
                 ]
                 .spacing(4);
 

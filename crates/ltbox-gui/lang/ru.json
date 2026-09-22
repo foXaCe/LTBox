@@ -486,6 +486,7 @@
   "konabess_warning_retargeted": "Исходная начальная целевая частота удалена, поэтому цель переназначена на оставшийся уровень.",
   "konabess_warning_summary": "В таблице устройства есть замечания ({count}), требующие внимания.",
   "konabess_warning_unknown_export_field": "Это поле экспорта не используется в LTBox.",
+  "label_value": "{label}: {value}",
   "live_adb_checking_device": "Проверка устройства",
   "live_adb_device_connected": "Устройство подключено",
   "live_adb_kernel_branch": "Ветка GKI ядра: {branch}",

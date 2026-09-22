@@ -486,6 +486,7 @@
   "konabess_warning_retargeted": "The original initial-target frequency was deleted, so the target is retargeted to a remaining level.",
   "konabess_warning_summary": "Advisory findings in the device table: {count}",
   "konabess_warning_unknown_export_field": "This export field is not used by LTBox.",
+  "label_value": "{label}: {value}",
   "live_adb_checking_device": "Checking device",
   "live_adb_device_connected": "Device connected",
   "live_adb_kernel_branch": "Kernel GKI branch: {branch}",
