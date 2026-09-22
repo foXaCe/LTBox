@@ -603,29 +603,7 @@ fn verify_qualcomm_authenticode(exe: &Path, log: &mut Vec<String>) -> Result<()>
 
 /// Run the signed installer through UAC and map cancel vs failure.
 fn run_installer_elevated(exe: &Path, log: &mut Vec<String>) -> Result<()> {
-    // Escape for a PowerShell single-quoted string literal (`'` → `''`).
-    // The temp path is process-id-derived so quotes are not expected, but
-    // escape defensively rather than trust the environment.
-    let exe_str = escape_powershell_single_quoted(&exe.to_string_lossy());
-    // `$p.ExitCode` can be `$null` for some self-extracting installers that
-    // hand off to a detached child; `exit $null` would silently become exit
-    // 0 and report a false success. Treat a null exit code as a failure
-    // (exit 1) so the caller surfaces `InstallerFailed` instead of a green
-    // toast over a driver that never actually installed.
-    let script = format!(
-        "try {{ $p = Start-Process -FilePath '{exe_str}' -Verb RunAs -Wait -PassThru \
-         -ErrorAction Stop; if ($null -eq $p.ExitCode) {{ exit 1 }} else {{ exit $p.ExitCode }} }} \
-         catch {{ exit 1223 }}"
-    );
-
-    let out = silent_command(windows_powershell_exe()?)
-        .arg("-NoProfile")
-        .arg("-NonInteractive")
-        .arg("-Command")
-        .arg(&script)
-        .output()
-        .map_err(DriverError::Io)?;
-
+    let out = run_elevated(exe)?;
     let code = out.status.code().unwrap_or(-1);
     match code {
         0 => Ok(()),
@@ -635,6 +613,10 @@ fn run_installer_elevated(exe: &Path, log: &mut Vec<String>) -> Result<()> {
             Err(DriverError::InstallCancelled)
         }
         other => {
+            let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if !detail.is_empty() {
+                live!(log, "[Driver] {detail}");
+            }
             live!(
                 log,
                 "[Driver] {}",
@@ -643,6 +625,40 @@ fn run_installer_elevated(exe: &Path, log: &mut Vec<String>) -> Result<()> {
             Err(DriverError::InstallerFailed { exit_code: other })
         }
     }
+}
+
+/// Launch `exe` through the UAC prompt and wait for it. Exit 1223 is a
+/// cancelled prompt; exit 1 with a stderr message is any other launch failure.
+fn run_elevated(exe: &Path) -> Result<std::process::Output> {
+    // Escape for a PowerShell single-quoted string literal (`'` → `''`).
+    // The temp path is process-id-derived so quotes are not expected, but
+    // escape defensively rather than trust the environment.
+    let exe_str = escape_powershell_single_quoted(&exe.to_string_lossy());
+    // `Process.Start` rather than `Start-Process`: the cmdlet rethrows launch
+    // errors as InvalidOperationException and drops the Win32 code, so a UAC
+    // cancel could not be told apart from any other failure. Only
+    // ERROR_CANCELLED (1223) is a cancel; other launch failures exit 1 with
+    // their message on stderr (UTF-8, so localized text survives any code
+    // page). A `$null` process (no handle to wait on) is a failure, never a
+    // silent success over a driver that did not install.
+    let script = format!(
+        "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; \
+         $i = New-Object System.Diagnostics.ProcessStartInfo; \
+         $i.FileName = '{exe_str}'; $i.Verb = 'runas'; $i.UseShellExecute = $true; \
+         try {{ $p = [System.Diagnostics.Process]::Start($i) }} \
+         catch {{ $e = $_.Exception; while ($null -ne $e) {{ \
+         if ($e.NativeErrorCode -eq 1223) {{ exit 1223 }}; $e = $e.InnerException }}; \
+         [Console]::Error.Write($_.Exception.Message); exit 1 }}; \
+         if ($null -eq $p) {{ exit 1 }}; $p.WaitForExit(); exit $p.ExitCode"
+    );
+
+    silent_command(windows_powershell_exe()?)
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-Command")
+        .arg(&script)
+        .output()
+        .map_err(DriverError::Io)
 }
 
 /// Stream the installer download with driver-flow log formatting.
@@ -1049,6 +1065,17 @@ mod tests {
         ] {
             assert!(!signer_subject_is_qualcomm(subject), "{subject}");
         }
+    }
+
+    /// A launch failure that is not a UAC cancel must not read as one. A
+    /// missing file fails inside `Process.Start` before any prompt appears.
+    #[cfg(windows)]
+    #[test]
+    fn elevated_launch_failure_is_not_reported_as_cancel() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = run_elevated(&dir.path().join("missing-installer.exe")).unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert!(!String::from_utf8_lossy(&out.stderr).trim().is_empty());
     }
 
     #[test]
