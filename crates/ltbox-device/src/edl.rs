@@ -261,9 +261,9 @@ type Result<T> = std::result::Result<T, EdlError>;
 /// Implemented with `nusb::list_devices()` to mirror the discovery path
 /// `qdl::usb::setup_usb_device` will take when actually opening the
 /// transport — keeping both probes on the same enumeration source avoids
-/// "visible to probe, invisible to open" mismatch (the classic failure
-/// mode of the previous code, which probed `serialport::available_ports`
-/// and then opened a totally different transport on top of it).
+/// a device being visible to the probe but invisible to open, which can
+/// happen when probing via `serialport::available_ports` and then opening
+/// a different transport on top of it.
 pub fn find_edl_device() -> Result<String> {
     use nusb::MaybeFuture;
     let devices = nusb::list_devices()
@@ -641,9 +641,9 @@ impl EdlSession {
         let mode = qcom_driver_mode();
         ltbox_core::live!(log, "[EDL] {}", tr("log_edl_scanning"));
         let port = wait_for_stable_port(mode)?;
-        // `port` is now a libusb marker string ("USB:VID_05C6&PID_9008"),
-        // not a COM port name — the log line wording is generic enough
-        // ("found on …") that the swap doesn't require an i18n update.
+        // In userspace mode `port` is a libusb marker string
+        // ("USB:VID_05C6&PID_9008"), not a COM port name; the log line
+        // wording is generic enough ("found on …") to cover either case.
         ltbox_core::live!(
             log,
             "[EDL] {}",
@@ -2802,7 +2802,7 @@ mod tests {
 
     #[test]
     fn wipe_erase_plan_rejects_missing_destructive_coords() {
-        // Missing start_sector would previously default to LBA 0 (primary GPT).
+        // Missing start_sector would otherwise default to LBA 0 (primary GPT).
         let missing_start = TempXml::new(
             r#"
             <data>
@@ -2817,7 +2817,7 @@ mod tests {
             "unexpected error: {err}"
         );
 
-        // Missing physical_partition_number would previously default to LUN 0.
+        // Missing physical_partition_number would otherwise default to LUN 0.
         let missing_lun = TempXml::new(
             r#"
             <data>

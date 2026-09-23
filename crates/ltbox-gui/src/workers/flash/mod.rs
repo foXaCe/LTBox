@@ -1,7 +1,6 @@
 //! Firmware flash worker: validate the firmware folder, route to EDL,
 //! apply region / rollback / country / wipe modifications, and flash every
-//! image (incl. the TB323FU ARB-overlay path). Extracted from the
-//! update_flash handler.
+//! image (incl. the TB323FU ARB-overlay path).
 
 use crate::{
     ConnectionStatus, CountryPatchProgress, FirmwareIdentity, LiveLabels, PhaseReporter,
@@ -638,12 +637,6 @@ fn decompress_zst_images(
     Ok(count)
 }
 
-/// Stream-decompress one zstd file, logging progress every ~1 GiB written.
-///
-/// Writes to a temporary sibling and renames onto `dst` only after a clean
-/// flush, so an interrupted run (kill / power loss) never leaves a
-/// complete-looking but truncated `*.img` that a later run would skip
-/// (`target.exists()`) and then flash.
 const ZSTD_FREE_SPACE_RESERVE_BYTES: u64 = 1024 * 1024 * 1024;
 const ZSTD_PROGRESS_INTERVAL_BYTES: u64 = 1 << 30;
 
@@ -704,6 +697,12 @@ fn stream_zstd_decoder<R: std::io::Read, W: std::io::Write>(
     Ok(out)
 }
 
+/// Stream-decompress one zstd file, logging progress every ~1 GiB written.
+///
+/// Writes to a temporary sibling and renames onto `dst` only after a clean
+/// flush, so an interrupted run (kill / power loss) never leaves a
+/// complete-looking but truncated `*.img` that a later run would skip
+/// (`target.exists()`) and then flash.
 fn decompress_zst_file(
     src: &std::path::Path,
     dst: &std::path::Path,

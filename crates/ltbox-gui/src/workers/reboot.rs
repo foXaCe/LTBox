@@ -1,5 +1,5 @@
-//! Reboot workers: issue the reboot command over ADB / Fastboot / EDL.
-//! Each runs on a blocking thread; extracted from the update_reboot handler.
+//! Reboot workers: issue the reboot command over ADB / Fastboot / EDL. Each
+//! runs on a blocking thread.
 
 use crate::{ConnectionStatus, RebootTarget, ensure_edl, open_edl_session};
 use ltbox_core::{i18n::tr, tr_args};

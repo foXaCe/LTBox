@@ -1,6 +1,5 @@
 //! Unroot worker: restore a stock root image — plus vbmeta when the root run
-//! rebuilt it — from a backup folder over EDL. Extracted from the update_unroot
-//! handler.
+//! rebuilt it — from a backup folder over EDL.
 
 use crate::{
     ConnectionStatus, PhaseReporter, UnrootType, find_edl_loader, open_edl_session,
@@ -86,25 +85,18 @@ pub(crate) fn unroot_worker(
     };
     live!(log, "[Unroot] {}", restored_label);
 
-    // Slot resolution must succeed —
-    // unroot writes the filename-resolved root target +
-    // vbmeta_<slot> from the user's
-    // backup folder. Defaulting to `_a`
-    // when the device was on `_b`
-    // restored stale stock blobs to the
-    // wrong slot and left the active
-    // slot still rooted, with no clear
+    // Slot resolution must succeed — unroot writes the filename-resolved root
+    // target + vbmeta_<slot> from the user's backup folder. Defaulting to
+    // `_a` when the device is on `_b` would restore stale stock blobs to the
+    // wrong slot and leave the active slot still rooted, with no clear
     // signal to the user.
     let slot =
         ltbox_device::controller::poll_active_slot(std::time::Duration::from_secs(30), &mut log)
             .map_err(|e| tr_args!("err_unroot_slot_resolve_failed", error = e))?;
 
-    // Decoupled loader — an explicit picker or
-    // remembered choice takes priority. Fall back
-    // to scanning the backup folder only when no
-    // override was set, preserving v3-pre-decouple
-    // behaviour for users who still ship a loader
-    // alongside the backup images.
+    // An explicit picker or remembered choice takes priority. Fall back to
+    // scanning the backup folder only when no override was set, for users
+    // who still ship a loader alongside the backup images.
     let loader = match loader_override.clone() {
         Some(p) => std::path::PathBuf::from(p),
         None => find_edl_loader(dir)

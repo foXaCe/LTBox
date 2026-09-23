@@ -51,7 +51,7 @@ pub(crate) fn flash_worker(
     // output can be tens of GB and take a while, so do it while the device is
     // still untouched (rather than leaving it parked in the bootloader), and so
     // a compressed AVB-protected partition image is present for the scan + region/AVB/ARB
-    // planning below. On failure the device has not been moved, so just return.
+    // planning below. On failure the device has not been moved, so return.
     // Phase 2/9 — Decompress packaged images.
     live!(log, "[Flash] {}", phases.marker(2));
     decompress_zst_images(fw_dir, &mut log)?;
@@ -100,20 +100,9 @@ pub(crate) fn flash_worker(
     // Phase 3/9 — Inspect device and firmware compatibility.
     live!(log, "[Flash] {}", phases.marker(3));
 
-    // Device detection
-    //
-    // Run the ADB device probe BEFORE the
-    // Fastboot bridge below. The previous
-    // ordering kicked off `adb reboot bootloader`
-    // first and only then asked `AdbManager::
-    // check_device`, by which point the device
-    // had already detached from ADB — so the
-    // detection block always logged "no ADB
-    // device info" even when an ADB bridge
-    // was sitting right there a second earlier.
-    // Now device info gets collected on the live
-    // ADB transport, and the bridge takes over
-    // afterwards.
+    // Probe ADB before the Fastboot bridge below reboots the device off ADB —
+    // otherwise this always logs "no ADB device info" even though a bridge
+    // was live a moment earlier.
     let skip_adb = conn.skip_adb();
     if skip_adb {
         ltbox_core::live!(
@@ -133,13 +122,8 @@ pub(crate) fn flash_worker(
                 "[ADB] {}",
                 ltbox_core::i18n::tr("live_adb_device_connected")
             );
-            // The active slot is resolved later via
-            // `controller::poll_active_slot` — that
-            // helper polls both ADB + Fastboot and
-            // hard-errors on probe failure, so the
-            // earlier `get_slot_suffix` round-trip
-            // here was redundant (its result was
-            // assigned to `_slot` and discarded).
+            // The active slot is resolved later via `controller::poll_active_slot`,
+            // which polls both ADB and Fastboot and hard-errors on probe failure.
         } else {
             ltbox_core::live!(
                 log,
@@ -399,7 +383,7 @@ pub(crate) fn flash_worker(
         ));
     }
 
-    // EDL-start no longer forces rollback-bypass (or region) off. The device
+    // EDL-start does not force rollback-bypass or region off. The device
     // model and committed rollback index are read by dumping vendor_boot +
     // boot + vbmeta_system from BOTH slots over EDL once the session is open
     // (see the `edl_start` block after `EdlSession::open` below), so the
@@ -1771,8 +1755,8 @@ pub(crate) fn flash_worker(
         let critical_backup = crate::backup::create_backup_dir("flash_firmware", &device_model)
             .map_err(|e| tr_args!("err_country_backup_dir_failed", error = e.to_string()))?;
         // Stash the bootloader's `getvar all` (incl. serialno) next to the
-        // backed-up partitions — revives + supersedes v2's `sn.txt`. Empty on
-        // an EDL-start flash (no fastboot probe); best-effort, never fatal.
+        // backed-up partitions. Empty on an EDL-start flash (no fastboot
+        // probe); best-effort, never fatal.
         if !getvar_raw.is_empty() {
             let _ = std::fs::write(critical_backup.join("getvar.txt"), &getvar_raw);
         }

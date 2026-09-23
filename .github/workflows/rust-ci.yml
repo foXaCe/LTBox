@@ -366,9 +366,8 @@ jobs:
       - name: Install native deps
         # `serialport` pulls libudev-sys; `qdl-rs` + transitive
         # libusb1-sys need libusb-1.0-0-dev; iced needs the X11 +
-        # Wayland + xkbcommon + fontconfig stack at link time. The
-        # exact list mirrors what L1's Linux notes call out so README
-        # / package docs can stay in sync with what CI proves green.
+        # Wayland + xkbcommon + fontconfig stack at link time. Keep the
+        # README's Linux build dependencies in sync with this list.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \

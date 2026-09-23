@@ -413,10 +413,9 @@ pub(crate) fn apply_getvar_all_line(vars: &mut FastbootVars, line: &str) {
     // helper walks every segment and picks the first
     // `<digits>+<digits>` block, so layout drift in newer
     // bootloaders doesn't silently drop RAM/storage.
-    // Model identification moved to the dedicated
-    // `modelname:` line below — the leading hwboardid token
-    // is the SoC name on stripped SKUs and not a reliable
-    // model source.
+    // Model comes from the dedicated `modelname:` line below —
+    // the leading hwboardid token is the SoC name on stripped
+    // SKUs and not a reliable model source.
     if let Some(val) = line.strip_prefix("hwboardid:")
         && let Some((ram, storage)) = parse_hwboardid_ram_storage(val.trim())
     {
@@ -615,7 +614,7 @@ mod tests {
 
     #[test]
     fn bare_hex_parses_as_base16() {
-        // Regression: bare hex previously fell through to 0 via unwrap_or(0).
+        // Bare hex with no `0x` prefix must still parse as base-16, not fall through to 0.
         let out = parse_stored_rollback_line("stored_rollback_index:0 = 41B7A200");
         assert_eq!(out, Some((0, 0x41B7A200)));
     }
@@ -649,7 +648,7 @@ mod tests {
 
     #[test]
     fn both_parens_on_slot_are_stripped() {
-        // Regression: `(0)` used to fail to parse and silently skip ARB.
+        // `(0)` with both parens must still parse instead of silently skipping ARB.
         let out = parse_stored_rollback_line("stored_rollback_index:(0) = 41B7A200");
         assert_eq!(out, Some((0, 0x41B7A200)));
     }

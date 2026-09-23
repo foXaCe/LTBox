@@ -23,8 +23,8 @@ use ltbox_core::tr_args;
 const METRIC_DIVIDER_HEIGHT: f32 = 34.0;
 
 /// Divider between metric cells. A bare `rule::vertical` asks for `Fill`
-/// height, which made the whole metrics strip stretch down the card and
-/// leave its values stranded at the top.
+/// height, which would stretch the whole metrics strip down the card and
+/// strand its values at the top.
 fn metric_divider() -> Element<'static, Message> {
     container(iced::widget::rule::vertical(1).style(shell_rule_style))
         .height(Length::Fixed(METRIC_DIVIDER_HEIGHT))
@@ -45,9 +45,8 @@ fn format_exec_duration(duration: std::time::Duration) -> String {
 
 impl App {
     pub(crate) fn view_sysupdate_wizard(&self) -> Element<'_, Message> {
-        // Exec-step log popup overlay — without this the "Show log" button
-        // on the exec card was a no-op for System Update (Flash/Root/Unroot
-        // all had it wired; SysUpdate had been missed).
+        // Exec-step log popup overlay, so the exec card's "Show log" button
+        // works for System Update the same as it does for Flash/Root/Unroot.
         if self.log_popup_open && self.sysupdate.is_in_exec() {
             return self.log_popup_view();
         }
@@ -289,7 +288,7 @@ impl App {
         self.exec_step_view_layout()
     }
 
-    /// Kept as the full-flash call-site name; every flow now uses the same
+    /// Kept as the full-flash call-site name; every flow uses the same
     /// live-log execution layout.
     pub(crate) fn exec_step_view_with_inline_log(&self) -> Element<'_, Message> {
         self.exec_step_view_layout()
@@ -358,8 +357,8 @@ impl App {
         ]
         .spacing(3.0)
         .width(Length::Fill);
-        // Only when the checklist is not on screen. Showing both would state
-        // the same position twice, which is what the step bar used to do.
+        // Only when the checklist is hidden (compact): the checklist itself
+        // numbers the steps, so this counter would repeat that position.
         if self.window_size_class() == WindowSizeClass::Compact && !self.operation.steps.is_empty()
         {
             now_copy = now_copy.push(
@@ -560,10 +559,10 @@ impl App {
             if state == WizardStepState::Active {
                 phase = phase.font(theme::emphasis::medium());
             }
-            // No trailing status word. The marker already says which state a
-            // row is in — filled check done, ringed number running, flat
-            // number waiting — and repeating it in text was taking the width
-            // the label needs.
+            // No trailing status word: the marker already shows a row's state
+            // (filled check done, ringed number running, flat number
+            // waiting), and repeating it in text would take width the label
+            // needs.
             checklist_rows = checklist_rows.push(
                 row![marker, phase]
                     .spacing(12)
@@ -676,9 +675,9 @@ impl App {
             .align_x(iced::alignment::Horizontal::Center)
             .align_y(iced::alignment::Vertical::Top);
 
-        // While the operation runs there is nothing to offer — Save moved into
-        // the log card's header — so the footer would render as an empty band
-        // across the bottom of the screen.
+        // While the operation runs there is nothing to offer here (Save lives
+        // in the log card's header), so the footer would otherwise render as
+        // an empty band across the bottom of the screen.
         if !action_layout.has_any() {
             return body.into();
         }

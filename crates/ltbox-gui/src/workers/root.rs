@@ -1,6 +1,5 @@
 //! Root worker: build patched root artifacts (Magisk / KernelSU
 //! / APatch / SKRoot Lite / GKI), flash them over EDL, and stage the manager APK.
-//! Extracted from the update_root handler.
 
 use crate::backup::{create_backup_dir, write_backup_manifest};
 use crate::{
@@ -80,9 +79,7 @@ fn resolve_provider_version(
     Ok((provider, version))
 }
 
-// The params are the closure's captured locals, threaded through verbatim
-// from the update_root handler; bundling them into a struct would only move the
-// noise. Extraction is mechanical, so keep the 1:1 capture->param mapping.
+// Bundling these into a struct would only move the noise, not reduce it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn root_worker(
     family: Option<Family>,
@@ -209,16 +206,12 @@ pub(crate) fn root_worker(
     // Front-loaded so the user sees something happen
     // before the long manager-APK / payload download.
     live!(log, "[Root] {}", phases.marker(1));
-    // Slot detection MUST succeed — root flashes
-    // the resolved root target + vbmeta_<slot>,
-    // and silently defaulting to `_a` previously
-    // landed flashes on the wrong slot when the
-    // device was actually running on `_b`. Poll
-    // both ADB + Fastboot up to 30 s; on failure,
-    // the helper returns a diagnostic that names
-    // which transport last failed and what to do
-    // (re-plug into normal/recovery, reboot to
-    // bootloader, fix unauthorized ADB, …).
+    // Slot detection must succeed — root flashes the resolved root target +
+    // vbmeta_<slot>, and defaulting to `_a` would flash the wrong slot when
+    // the device is actually running `_b`. Poll both ADB + Fastboot up to
+    // 30 s; on failure, the helper returns a diagnostic that names which
+    // transport last failed and what to do (re-plug into normal/recovery,
+    // reboot to bootloader, fix unauthorized ADB, …).
     let slot_suffix =
         ltbox_device::controller::poll_active_slot(std::time::Duration::from_secs(30), &mut log)
             .map_err(|e| e.to_string())?;
@@ -419,7 +412,7 @@ pub(crate) fn root_worker(
                 // The root target is read first because every route needs it,
                 // and it carries the same build fingerprint vbmeta does
                 // (`com.android.build.<part>.fingerprint`) — so the model
-                // cross-check below no longer forces a vbmeta dump on devices
+                // cross-check below needs no separate vbmeta dump on devices
                 // that chain the target.
                 session
                     .dump_partition(
@@ -586,11 +579,9 @@ pub(crate) fn root_worker(
                 // the post-patch open gets a fresh handle.
             }
 
-            // Phase 5/8 — Offline root target image patch + AVB metadata rebuild.
-            // vbmeta rebuild. Network downloads moved
-            // up to Phase 2; this step never touches
-            // the network so progress now matches the
-            // "patching" label.
+            // Phase 5/8 — Offline root target image patch + AVB metadata
+            // rebuild. Network downloads happen in Phase 2, so this step
+            // never touches the network, matching its "patching" label.
             live!(log, "[Root] {}", phases.marker(5));
 
             // The patch phase reuses the same config the
@@ -667,13 +658,12 @@ pub(crate) fn root_worker(
             session.reset_tolerant(&mut log);
             // Phase 8/8 — Finish Android setup and manager installation.
             live!(log, "[Root] {}", phases.marker(8));
-            // Skip post-reboot retry if the pre-EDL install
-            // already failed for a deterministic reason
-            // (e.g. `INSTALL_FAILED_VERSION_DOWNGRADE`) — the
-            // 60 s wait + reinstall would just hit the same
-            // error after the user's burned a minute waiting.
-            // The end-of-run reminder still fires from the
-            // pre-EDL `manager_install_failed_path` stamp.
+            // Skip post-reboot retry if the pre-EDL install already failed
+            // for a deterministic reason (e.g.
+            // `INSTALL_FAILED_VERSION_DOWNGRADE`) — the 60 s wait + reinstall
+            // would hit the same error after the user's burned a minute
+            // waiting. The end-of-run reminder still fires from the pre-EDL
+            // `manager_install_failed_path` stamp.
             if !manager_installed_pre_edl
                 && manager_install_failed_path.is_none()
                 && let Some(path) = manager_apk.as_ref()

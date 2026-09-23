@@ -341,11 +341,9 @@ impl App {
             Message::ToggleLogPopup(open) => {
                 self.log_popup_open = open;
             }
-            // Settings dispatch delegates to a focused handler.
             Message::Settings(m) => return self.update_settings(m),
-            // Flash wizard
             Message::Flash(m) => return self.update_flash(m),
-            // Country code popup
+            // Country code popup.
             Message::CountrySearchInput(query) => {
                 self.country_popup_search = query;
             }
@@ -403,7 +401,7 @@ impl App {
                     self.flash.back();
                 }
             }
-            // Region-convert target picker popup
+            // Region-convert target picker popup.
             Message::SelectRegionTarget(target) => {
                 self.region_target_popup_open = false;
                 self.adv_wizard.region_target = Some(target);
@@ -411,16 +409,12 @@ impl App {
             Message::DismissRegionTargetPopup => {
                 self.region_target_popup_open = false;
             }
-            // System Update wizard
             Message::Sys(m) => return self.update_sys(m),
-            // Root wizard
             Message::Root(m) => return self.update_root(m),
-            // Unroot wizard
             Message::Unroot(m) => return self.update_unroot(m),
-            // Advanced
             Message::Adv(m) => return self.update_adv(m),
             Message::KonaBess(m) => return self.update_konabess(m),
-            // Async results
+            // Async results.
             Message::FileSelected(path) => {
                 if let Some(p) = path {
                     self.remember_recent(self.picker_target.kind(), &p);
@@ -831,9 +825,9 @@ impl App {
                 }
                 match result {
                     Ok(info) => {
-                        // Cache only. Flash region is no longer preselected
-                        // silently here — the Flash wizard's Auto FAB is the
-                        // explicit entry point for SaleArea-driven detection.
+                        // Cache only; the Flash wizard's Auto FAB is the
+                        // explicit entry point for SaleArea-driven region
+                        // detection, not a silent preselect from here.
                         self.queries.info_cache.insert(serial.clone(), info);
                         if matches!(&self.device_info_popup, Some((s, _)) if s == &serial) {
                             self.device_info_popup = Some((serial, DeviceInfoState::Ready));
@@ -1126,11 +1120,10 @@ impl App {
                 // Avoids clipping the tail of the spring response.
                 //
                 // Test the value this tick produces, not the one it started
-                // from. `subscription` stops ticking on exactly this condition
-                // evaluated against the new value, so judging it against the
-                // old one meant the tick that first satisfied it never got to
-                // snap — the rail rested a hair off zero, which left the
-                // overlay's drawer shadow drawn after the pointer had left.
+                // from: `subscription` stops ticking on exactly this condition
+                // evaluated against the new value, so checking the old value
+                // instead would let the rail rest a hair off zero, leaving the
+                // overlay's drawer shadow visibly stuck after the pointer left.
                 if (target - next).abs() < 0.001 && self.sidebar_velocity.abs() < 0.05 {
                     self.sidebar_anim = target;
                     self.sidebar_velocity = 0.0;
@@ -1336,11 +1329,9 @@ impl App {
             }
             Message::FlashParts(m) => return self.update_flash_parts(m),
             Message::DumpParts(m) => return self.update_dump_parts(m),
-            // -- Physical Storage: Dump --------------------------------------
             Message::DumpPhys(m) => return self.update_dump_phys(m),
-            // -- Physical Storage: Flash -------------------------------------
             Message::FlashPhys(m) => return self.update_flash_phys(m),
-            // -- Simple Firmware Flash (stock-equivalent, no checks) ----------
+            // Simple Firmware Flash: stock-equivalent, no checks.
             Message::SimpleFlash(m) => return self.update_simple_flash(m),
             Message::Reboot(m) => {
                 match &m {
@@ -1369,13 +1360,11 @@ impl App {
             Message::InstallDriversDone(result) => {
                 self.installing_drivers = false;
                 // Drain any lines still pending in the sink/tap so the
-                // worker's terminal `live_driver_install_finished`
-                // line lands before the banner re-check fires. Don't
-                // append a separate `driver_install_done` line — the
-                // worker already emitted a localized completion line
-                // (`Installation finished (N/N succeeded)`), so the
-                // extra log_push here was a near-duplicate of the same
-                // message in a different wording.
+                // worker's terminal `live_driver_install_finished` line
+                // lands before the banner re-check fires. The worker already
+                // emits a localized completion line
+                // (`Installation finished (N/N succeeded)`); do not push a
+                // second `driver_install_done` line duplicating it.
                 let _ = self.drain_pending_log_streams();
                 match result {
                     Ok(_log) => {

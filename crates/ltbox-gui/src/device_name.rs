@@ -1,5 +1,5 @@
 //! Device-name / build-string helpers: normalize ro.* props and TWRP
-//! product strings into a friendly device label. Extracted from main.rs.
+//! product strings into a friendly device label.
 
 /// Trim Lenovo build-display to the ROM + version tail. Example:
 /// `TB322FC_..._ZUXOS_1.5.10.183_ST_...` → `ZUXOS_1.5.10.183_ST_...`.

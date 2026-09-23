@@ -1,16 +1,10 @@
 //! Launch-time screenshot scenes for the opt-in `demo` feature.
 //!
-//! `LTBOX_DEMO` accepts dashboard scenes `dashboard`, `drivers-missing`,
-//! `adb-conflict`, `software-fix`, and `dual-usb-advisory`, plus wizard scenes `<flow>:<step>`
-//! where `flow` is `same` or `other` and `step` is `region`, `target`, `data`,
-//! `country`, `folder`, `confirm`, or `flash`. It also accepts first-screen view scenes
-//! `view:root`, `view:unroot`, `view:sysupdate`, `view:konabess`, `view:konabess-table`,
-//! `view:reboot`, `view:reboot-wait`, `view:advanced`, `view:settings`, and
-//! `view:about`, plus the
-//! static inspection scenes enumerated in [`VALID_SCENES`], including the
-//! Advanced partition-table scenes `view:flash-parts` and `view:dump-parts`.
-//! `view:flash-parts-confirm` reuses the flash table fixture at the review step:
-//! two writes with long source paths and one erase, without device access.
+//! `LTBOX_DEMO` selects a scene by name from [`VALID_SCENES`]: dashboard and
+//! advisory scenes, wizard scenes `<flow>:<step>` (`flow` is `same` or
+//! `other`), and first-screen `view:<name>` scenes. `view:flash-parts-confirm`
+//! reuses the flash table fixture at the review step: two writes with long
+//! source paths and one erase, without device access.
 //!
 //! PowerShell preview (close the previous demo before rebuilding):
 //! ```text

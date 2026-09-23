@@ -208,7 +208,7 @@ impl PatchDoExecve {
         a.b_cond(Cond::Ne, end);
         a.cbnz_w(15, cycle);
 
-        // --- match: grant root ------------------------------------------------
+        // Match: grant root.
         base.emit_get_current(&mut a, 12); // x12 = current task
         a.ldr_x_uoff(14, 12, cred_offset as u32); // x14 = cred
         a.add_imm_x(14, 14, ic.atomic_usage_size as u32); // skip usage counter
@@ -254,7 +254,7 @@ impl PatchDoExecve {
         // zero seccomp.mode (the actual seccomp disable).
         a.str_w_uoff(ZR, 12, seccomp_offset as u32);
 
-        // --- end: jump back past the overwritten instruction ------------------
+        // End: jump back past the overwritten instruction.
         a.bind(end);
         let b_pos = a.offset() as i64;
         a.b_off((jump_back as i64 - (hook_addr as i64 + b_pos)) as i32);

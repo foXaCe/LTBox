@@ -1073,8 +1073,8 @@ impl App {
         let vbmeta_result = self.parse_manual_rollback(vbmeta_buffer);
         let both_valid = boot_result.is_ok() && vbmeta_result.is_ok();
         // The hint under each field reports what the *image* carries, so it has
-        // to be read from the firmware every time. Deriving it from the field
-        // made it echo whatever the user had just typed.
+        // to be read from the firmware every time; deriving it from the field
+        // would just echo whatever the user typed.
         let advanced_originals = self.adv_wizard.arb_inspect.map(|(a, b)| (Ok(a), Ok(b)));
         let originals = if self.current_view == View::Advanced
             && self.adv_wizard.action == Some(AdvAction::PatchArb)

@@ -249,13 +249,11 @@ fn extract_kernel_from_zip(zip_path: &Path, dst: &Path, log: &mut Vec<String>) -
     let mut entry = archive
         .by_name(&name)
         .map_err(|e| LtboxError::Patch(format!("kernel zip {name}: {e}")))?;
-    // Stream the zip entry to disk instead of buffering it whole. The
-    // previous `Vec::with_capacity(entry.size() as usize)` trusted the
-    // local zip header's declared size, so a malformed or hostile
-    // AnyKernel zip could declare an enormous kernel and force an OOM
-    // before any bytes were read. A sane upper bound (200 MiB — well
-    // above any real Android boot kernel) protects against a runaway
-    // copy if the entry's actual stream is malformed too.
+    // Stream the zip entry to disk instead of buffering it whole: `size()`
+    // comes from the untrusted local zip header, so pre-sizing a `Vec` from
+    // it is an OOM vector for a malformed or hostile AnyKernel zip. The cap
+    // (200 MiB — well above any real Android boot kernel) also protects
+    // against a runaway copy if the entry's stream itself is malformed.
     const MAX_KERNEL_BYTES: u64 = 200 * 1024 * 1024;
     let mut out = fs::File::create(dst)?;
     let copied = {

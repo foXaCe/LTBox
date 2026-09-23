@@ -1,6 +1,5 @@
 //! System-update worker: disable/enable Lenovo OTA packages over ADB,
-//! or run the Rescue OTA (EDL dump + region patch + reflash). Extracted
-//! from the update_sys handler.
+//! or run the Rescue OTA (EDL dump + region patch + reflash).
 
 use crate::{
     ConnectionStatus, PhaseReporter, RescueRegion, SysUpdateAction, open_edl_session,
@@ -31,19 +30,13 @@ pub(crate) fn sysupdate_worker(
     {
         return Err(error);
     }
-    // Disable/Enable need a running Android shell;
-    // Rescue needs EDL. The previous flow assumed
-    // ADB at start and bailed otherwise — so a
-    // device sitting in Fastboot or EDL hard-failed
-    // even though both modes are recoverable. Bridge
-    // here:
-    //   * Disable/Enable: from Fastboot, `fastboot
-    //     continue` and wait for ADB; from EDL we
-    //     have no automatic system-boot path so the
-    //     user must reboot manually.
-    //   * Rescue: hand off to `transition_to_edl`,
-    //     which already handles all three source
-    //     modes via `ensure_edl`.
+    // Disable/Enable need a running Android shell; Rescue needs EDL. A
+    // device sitting in Fastboot or EDL is still recoverable, so bridge it:
+    //   * Disable/Enable: from Fastboot, `fastboot continue` and wait for
+    //     ADB; from EDL there is no automatic system-boot path, so the user
+    //     must reboot manually.
+    //   * Rescue: hand off to `transition_to_edl`, which already handles
+    //     all three source modes via `ensure_edl`.
     if action != SysUpdateAction::Rescue {
         ltbox_core::live!(log, "[SysUpdate] {}", phases.marker(1));
     }
@@ -272,19 +265,9 @@ pub(crate) fn sysupdate_worker(
                 "[Rescue] {}",
                 ltbox_core::i18n::tr("live_rescue_transitioning")
             );
-            // Use the shared `transition_to_edl`
-            // helper so Rescue handles every
-            // source mode (ADB / Fastboot / EDL)
-            // the same way Flash / Root / Unroot
-            // already do — the previous
-            // `adb.reboot("edl")` + 5 s sleep
-            // sequence assumed ADB and silently
-            // ignored the reboot result, so a
-            // device already in Fastboot or EDL
-            // hard-failed at the earlier ADB
-            // check even though the operation is
-            // perfectly recoverable from those
-            // modes.
+            // Use the shared `transition_to_edl` helper so Rescue handles
+            // every source mode (ADB / Fastboot / EDL) the same way
+            // Flash / Root / Unroot already do.
             transition_to_edl(conn, &mut log)?;
 
             ltbox_core::live!(log, "[Rescue] {}", phases.marker(3));

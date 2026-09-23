@@ -159,12 +159,10 @@ pub(crate) fn m3_log_text_field_with_action<'a>(
     action: Option<Element<'a, Message>>,
     editor: Element<'a, Message>,
 ) -> Element<'a, Message> {
-    // Titled like the other dashboard cards rather than like an M2 filled
-    // text field. The old form put a `primary` caption at the top and a
-    // 2 px `primary` active indicator at the very bottom — on a
-    // full-height read-only log that indicator ended up as a stray blue
-    // rule hundreds of pixels away from its label, marking "focus" on a
-    // surface that is never focused.
+    // Titled like the other dashboard cards rather than as an M2 filled text
+    // field: a `primary` active indicator at the bottom of a full-height
+    // read-only log would sit hundreds of pixels from its caption, marking
+    // "focus" on a surface that is never focused.
     let label = label.into();
     let mut label_content = row![
         text(label)
@@ -479,10 +477,8 @@ pub(crate) fn large_top_app_bar<'a>(
         left: 24.0,
     };
     let content_min_height = WIZARD_TOP_APP_BAR_HEIGHT - padding.top - padding.bottom;
-    // Beside the title, not stacked under it. The mockup wraps to a second
-    // line in compact, but that guard was for arbitrary step descriptions —
-    // only two subtitles survive in the whole app and both are short, so
-    // they ride the baseline and ellipsize rather than growing the bar.
+    // The subtitle sits beside the title and ellipsizes rather than wrapping,
+    // so the bar keeps a fixed height; subtitles are short status text.
     let mut content = row![
         text(title)
             .size(theme::text_size::TITLE_LARGE)
@@ -514,9 +510,8 @@ pub(crate) fn large_top_app_bar<'a>(
                     .width(Length::Fill)
                     .max_width(WIZARD_TOP_APP_BAR_MAX_WIDTH),
             ]
-            // The 132px large app bar sat its title on the baseline, M3's
-            // large-top-app-bar behaviour. At 64px this is a small top app
-            // bar, whose title is centred in the bar.
+            // At 64px this is M3's small top app bar, not the large variant,
+            // so the title is centred in the bar rather than baseline-aligned.
             .align_y(iced::Alignment::Center)
         )
         .width(Length::Fill)
@@ -777,10 +772,10 @@ pub(crate) fn info_key_value_table(fields: Vec<(String, String)>) -> Element<'st
 }
 
 pub(crate) fn adv_grid_btn<'a>(item: AdvAction, label: &str) -> Element<'a, Message> {
-    // Inner container: border-only via `sel_card_style`. Earlier
-    // version used `theme::surface_card_style` which paints an opaque
-    // bg — that bg sat on top of the button's hover fill, swallowing
-    // the highlight and making the grid feel dead on hover.
+    // Inner container: border-only via `sel_card_style`. An opaque
+    // background, as `theme::surface_card_style` paints, would sit on top
+    // of the button's hover fill and swallow the highlight, making the
+    // grid feel dead on hover.
     let destructive = item.is_destructive();
     let foreground = move |t: &Theme| {
         let p = pal_of(t);

@@ -1,5 +1,4 @@
 //! ARB (anti-rollback) detection worker and its UTC timestamp helpers.
-//! Extracted from main.rs.
 
 use crate::*;
 

@@ -691,13 +691,12 @@ pub fn build_patched_artifacts(
         )
     );
 
-    // Slot suffix must be poll-resolved by the caller. Defaulting to
-    // `_a` here was a silent footgun: when the device was actually
-    // running on `_b`, the patched artifact landed on the wrong slot
-    // and the user got "root succeeded" with the active slot still
-    // unmodified. The GUI threads `controller::poll_active_slot`
-    // through `RootPipelineConfig.slot_suffix`; reject an empty
-    // value rather than picking a guess.
+    // Slot suffix must be poll-resolved by the caller. Defaulting to `_a`
+    // here would land the patched artifact on the wrong slot whenever the
+    // device is actually running `_b`, reporting "root succeeded" while the
+    // active slot stays unmodified. The GUI threads
+    // `controller::poll_active_slot` through `RootPipelineConfig.slot_suffix`;
+    // reject an empty value rather than picking a guess.
     if cfg.slot_suffix.is_empty() {
         return Err(LtboxError::Patch(
             "slot_suffix is empty; caller must resolve the active slot via \

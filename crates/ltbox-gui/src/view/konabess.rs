@@ -762,9 +762,9 @@ fn gpu_table_view<'a>(
 
     // Everything above the table is fixed height, so a `Fill` table is the
     // first thing squeezed out when the window is short — at the minimum it
-    // collapsed to nothing at all. Only claim the remaining height when there
-    // is enough of it; otherwise take the natural height and let the step
-    // scroll as one page, which the caller arranges.
+    // would collapse to nothing at all. Only claim the remaining height when
+    // there is enough of it; otherwise take the natural height and let the
+    // step scroll as one page, which the caller arranges.
     let vertical = if fill_height {
         Length::Fill
     } else {

@@ -1,7 +1,8 @@
 //! Shared behavior profiles, independent of device and firmware validation.
 //!
-//! The generic profile preserves existing fallback behavior; it does not whitelist
-//! unknown physical devices. Connection and firmware compatibility checks still apply.
+//! The generic profile is the fallback for unrecognized model strings; it does
+//! not whitelist unknown physical devices. Connection and firmware
+//! compatibility checks still apply.
 
 use super::{LAVIE_TAB_9QHD1_MODEL, token_match};
 

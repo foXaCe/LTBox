@@ -18,10 +18,10 @@ const FILE_NAME: &str = "settings.json";
 pub const RECENT_MAX: usize = 5;
 
 /// Legacy global-files bucket key for migration from pre-category config.
-/// v2 / early-v3 settings only had `files: Vec<String>` + `folders: Vec<String>`;
-/// rather than throw the history away, we bin it into these stable keys so
-/// the user still sees their last-used paths somewhere — they can pick the
-/// actual category bucket next time they Browse.
+/// Older settings only had `files: Vec<String>` + `folders: Vec<String>`;
+/// rather than throw the history away, it is binned into these stable keys
+/// so the user still sees their last-used paths somewhere — they can pick
+/// the actual category bucket next time they Browse.
 pub const LEGACY_FILES_KEY: &str = "legacy.files";
 pub const LEGACY_FOLDERS_KEY: &str = "legacy.folders";
 

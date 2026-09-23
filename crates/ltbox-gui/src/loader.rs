@@ -1,4 +1,4 @@
-//! EDL loader discovery + validation helpers, extracted from `main.rs`.
+//! EDL loader discovery + validation helpers.
 
 /// File-dialog / recent-chip extension filter for the EDL loader picker:
 /// a stock `.melf` loader or a plaintext/encrypted Sahara manifest.

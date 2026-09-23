@@ -1,6 +1,6 @@
 //! Partition + physical-range flash/dump workers. Each runs off the
 //! UI thread: route to EDL, open Sahara/Firehose, scan GPTs or
-//! transfer images, then reset. Extracted from `main.rs`.
+//! transfer images, then reset.
 
 use crate::{
     ConnectionStatus, DumpPartRow, DumpPartsScanResult, FlashPartRow, FlashPartsScanResult,

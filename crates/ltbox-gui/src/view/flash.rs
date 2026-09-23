@@ -439,8 +439,9 @@ impl App {
                 Some(Message::Flash(FlashMsg::FlashDataMode(DataMode::Wipe))),
                 metrics,
             ));
-        // Below the options, not above: this banner appears only when erase
-        // is chosen, and placing it first shoved both rows down on selection.
+        // Below the options, not above: this banner shows only when erase
+        // is chosen, and placing it first would shove both rows down on
+        // selection.
         if self.flash.data_mode == Some(DataMode::Wipe) {
             cards = cards.push(
                 self.message_banner(
@@ -662,7 +663,7 @@ impl App {
             .to_string();
         let data_changed = base.is_some_and(|b| b.wipe != cfg.wipe);
 
-        // Confirm rows use short value labels (Modify / Auto / Ignore)
+        // Confirm rows use short value labels (On / Auto / Manual / Off)
         // instead of the verbose "… rollback index" strings shown in
         // logs — the review summary is tighter to read that way.
         let modify_region = self

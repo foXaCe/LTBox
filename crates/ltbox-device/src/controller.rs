@@ -18,10 +18,9 @@ pub enum ControllerError {
 /// the wrong slot's `boot_*` / `vbmeta_*` / `init_boot_*` partition
 /// either fails AVB on the next boot (if the device flips slots
 /// post-flash) or quietly leaves the device on the unmodified slot
-/// (if it doesn't). Defaulting to `_a` when probing fails was a
-/// silent footgun — flashes landed on `_a` while the device was
-/// running on `_b`, so the user saw "flash succeeded" but nothing
-/// changed. Force a hard error instead so the caller has to fix the
+/// (if it doesn't). Defaulting to `_a` when probing fails would flash
+/// silently to the wrong slot while reporting success, so this
+/// returns a hard error instead, forcing the caller to fix the
 /// transport state before any destructive op runs.
 ///
 /// Polls both transports because the device's state mid-flow

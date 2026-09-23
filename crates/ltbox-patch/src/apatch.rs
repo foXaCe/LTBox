@@ -107,9 +107,8 @@ fn patch_boot_impl(
 
     // Bail if kernel is already patched. `parse_image_patch_info` returns
     // Ok for any kernel with a Linux banner (patched or pristine); only
-    // `preset_offset.is_some()` distinguishes the two. The previous
-    // `is_ok()` check false-positived on every pristine stock image,
-    // blocking fresh root runs with "already APatch-patched".
+    // `preset_offset.is_some()` distinguishes the two, so an `is_ok()` check
+    // alone would flag every pristine stock image as already patched.
     {
         let kimg_bytes = fs::read(&kernel_ori)?;
         if let Ok(info) = patch::parse_image_patch_info(&kimg_bytes)
@@ -319,11 +318,9 @@ mod tests {
         assert!(msg.contains("missing kpimg"), "unexpected: {msg}");
     }
 
-    /// Regression: previous version of `patch_boot` used
-    /// `parse_image_patch_info(..).is_ok()` to decide "already patched",
-    /// which is True on **every** kernel with a Linux banner — including
-    /// pristine stock images. The fix narrows the check to
-    /// `preset_offset.is_some()`, the actual patched-state marker.
+    /// Regression guard: `parse_image_patch_info(..).is_ok()` alone is true on
+    /// **every** kernel with a Linux banner, including pristine stock images,
+    /// so the already-patched check must key on `preset_offset.is_some()`.
     ///
     /// This test asserts the patch-info parser reports
     /// `preset_offset = None` on a known-pristine boot image. The image

@@ -192,7 +192,7 @@ impl App {
                     remove,
                     // Module filenames can be long and have no spaces, so
                     // break at glyph boundaries rather than overflowing
-                    // the column the list now shares with the card.
+                    // the column the list shares with the card.
                     text(name)
                         .size(12.0)
                         .style(on_surface_style)

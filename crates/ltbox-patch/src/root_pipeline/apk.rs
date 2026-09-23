@@ -107,8 +107,8 @@ pub(super) fn copy_apk_to(src: &Path, dst: &Path) -> Result<()> {
 }
 
 /// Recursive .apk hunt — extracted nightly artifacts often nest the
-/// APK inside `<artifact>/manager/` or `arm64-v8a/`. `read_dir` alone
-/// missed those entries and the wizard reported "no .apk found".
+/// APK inside `<artifact>/manager/` or `arm64-v8a/`, which a flat
+/// `read_dir` would miss.
 pub(super) fn collect_apks_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;

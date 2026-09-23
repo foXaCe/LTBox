@@ -467,8 +467,8 @@ impl RootWizard {
     }
 }
 
-/// Linear-step wizard contract. Wizards whose `next` / `back` simply
-/// walk a 0..step_count range share `reset` / `next` / `back` /
+/// Linear-step wizard contract. Wizards whose `next` / `back` walk a
+/// `0..step_count` range share `reset` / `next` / `back` /
 /// `is_in_exec` via this trait's default impls; only `step`,
 /// `step_mut`, `step_count`, and `can_next` need per-impl bodies.
 ///
@@ -2237,7 +2237,7 @@ impl AdvWizard {
             self.action,
             // ConvertXml: folder holds the encrypted `*.x` pack.
             // PatchArb: folder holds boot.img + vbmeta_system.img.
-            // (Change Country Code now picks an EDL loader file, not a folder.)
+            // Change Country Code picks an EDL loader file, not a folder.
             Some(AdvAction::ConvertXml) | Some(AdvAction::PatchArb)
         )
     }

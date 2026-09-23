@@ -2,7 +2,7 @@ use super::*;
 
 /// Advanced "Change Country Code": rewrite the device's country code over EDL
 /// and reset to system. Mirrors `flash_worker`'s country phase but standalone —
-/// no firmware package, just a user-picked country + EDL loader. Per model:
+/// no firmware package, only a user-picked country + EDL loader. Per model:
 /// the partitions come from the model's `ModelCapabilities::country_partitions`.
 pub(crate) fn change_country_worker(
     conn: ConnectionStatus,

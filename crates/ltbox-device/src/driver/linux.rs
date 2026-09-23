@@ -773,7 +773,7 @@ fn which_program(name: &str) -> Option<std::path::PathBuf> {
 mod tests {
     use super::*;
 
-    /// Weekly network smoke test for the selected QUD archive.  The archive is
+    /// Weekly network smoke test for the selected QUD archive. The archive is
     /// only downloaded to a temporary directory and opened as a zip; it is
     /// never extracted, installed, or passed to a privileged command.
     #[test]

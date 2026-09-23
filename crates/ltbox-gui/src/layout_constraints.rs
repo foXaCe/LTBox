@@ -25,6 +25,9 @@ pub(crate) const SETTINGS_VALUE_FIELD_WIDTH: f32 = 280.0;
 pub(crate) const SETTINGS_SEGMENT_TEXT_SIZE: f32 = 12.0;
 pub(crate) const SETTINGS_SEGMENT_HORIZONTAL_PADDING: f32 = 13.0;
 
+/// Interior padding for text fields and pick lists. Brings a 13 px dropdown
+/// option to about 41 px, near M3's 48 dp menu-item target, without making
+/// settings rows tower over their labels.
 pub(crate) const M3_FIELD_PADDING: iced::Padding = iced::Padding {
     top: 12.0,
     right: 16.0,
@@ -34,12 +37,12 @@ pub(crate) const M3_FIELD_PADDING: iced::Padding = iced::Padding {
 
 pub(crate) const M3_BUTTON_H_PADDING: f32 = 16.0;
 
-/// Dialog width scale. Callers keep ownership of their content layout while
-/// choosing the width by kind: short confirmation/input, choice/detail, editor.
-/// These live here rather than in `theme` because the locale guards include
-/// this module standalone and must measure the same budgets the widgets use.
 pub(crate) const DIALOG_HEADLINE_SIZE: f32 = 24.0;
 
+/// Dialog width scale. Callers choose by kind: short confirmation/input (SM),
+/// choice/detail (MD), editor (LG). Lives here rather than in `theme` because
+/// the locale guards import this module standalone to measure the same
+/// budgets the widgets use.
 pub(crate) const DIALOG_WIDTH_SM: f32 = 400.0;
 pub(crate) const DIALOG_WIDTH_MD: f32 = 520.0;
 pub(crate) const DIALOG_WIDTH_LG: f32 = 720.0;

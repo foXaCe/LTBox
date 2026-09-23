@@ -1,5 +1,5 @@
 //! Wizard navigation bars and small view widgets/helpers (nav buttons,
-//! color blend/easing, device portrait, layout consts). Extracted from main.rs.
+//! color blend/easing, device portrait, layout consts).
 
 use crate::focus_button::{self as button, button};
 use crate::*;
@@ -452,10 +452,6 @@ pub(crate) fn empty_wizard_nav<'a>() -> Element<'a, Message> {
 /// container also occupies the 48 dp accessible target.
 pub(crate) const M3_BUTTON_HEIGHT: f32 = 48.0;
 
-/// Interior padding for text fields and pick lists. At the default the
-/// dropdown options came out around 27 px tall; this puts a 13 px option
-/// at ~41 px, in reach of the 48 dp M3 asks of a menu item without
-/// making the settings rows tower over their labels.
 fn m3_button<'a>(
     label: String,
     style: fn(&Theme, button::Status) -> button::Style,

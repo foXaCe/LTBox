@@ -1,6 +1,6 @@
 //! End-to-end regression coverage for the pure ARB overlay builder.
 //!
-//! These fixtures deliberately use the embedded avbtool-rs test keys.  They
+//! These fixtures deliberately use the embedded avbtool-rs test keys. They
 //! exercise the same chain descriptors and hash footers as a firmware package,
 //! while keeping the tests offline, small, and independent of a device.
 
@@ -45,7 +45,7 @@ impl Fixture {
             1,
             0x22,
         );
-        // This descriptor is not chained.  It stands in for a region-converted
+        // This descriptor is not chained. It stands in for a region-converted
         // vbmeta base whose unrelated vendor_boot hash must survive a rebuild.
         make_hash_image(&firmware.join("vendor_boot.img"), "vendor_boot", 7, 3, 0x33);
 

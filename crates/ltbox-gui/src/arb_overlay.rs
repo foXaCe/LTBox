@@ -97,10 +97,9 @@ pub(crate) fn dump_verified_active_abl(
 }
 
 /// Inspect a Canoe target's `efisp` and, when it is still all-zero, stage the
-/// matching
-/// region GBL used by the Root and KonaBess device workers. The caller performs
-/// the actual efisp write with [`provision_canoe_efisp`] at the safest point
-/// in its own operation.
+/// matching region GBL used by the Root and KonaBess device workers. The
+/// caller performs the actual efisp write with [`provision_canoe_efisp`] at
+/// the safest point in its own operation.
 pub(crate) fn prepare_canoe_efisp(
     session: &mut ltbox_device::edl::EdlSession,
     slot_suffix: &str,
@@ -183,9 +182,9 @@ fn prepare_canoe_efisp_with(
 ///
 /// Every caller writes the result to the device's `efisp` partition, so the
 /// release tag is pinned, the asset name must be one of a fixed set, and the
-/// bytes are SHA-256 checked before the path is handed back. The Flash path
-/// grew those three guards first; Root and KonaBess reached the same partition
-/// through a copy that floated on `latest` and verified nothing.
+/// bytes are SHA-256 checked before the path is handed back: an unpinned
+/// release or an unverified download could stage an unexpected image onto a
+/// rollback-protected partition.
 pub(crate) fn fetch_efisp_asset(
     suffix: &str,
     efi_dir: &std::path::Path,
@@ -302,8 +301,7 @@ pub(crate) fn verify_efisp_asset(path: &std::path::Path, asset_name: &str) -> Re
 }
 
 /// Provision a staged region GBL for a Canoe target. `None` is the
-/// already-provisioned
-/// path and deliberately performs no device write.
+/// already-provisioned path and deliberately performs no device write.
 pub(crate) fn provision_canoe_efisp(
     session: &mut ltbox_device::edl::EdlSession,
     efi: Option<&std::path::Path>,
@@ -521,10 +519,11 @@ pub(crate) fn build_testkey_arb_overlays(
             .rollback_index)
     };
 
-    // 2. Device-committed per-location indices (boot + vbmeta_system). On an
-    //    EDL-start flash the caller passes component-wise maxima already read
-    //    across BOTH slots; otherwise read the ACTIVE slot here (a first-time
-    //    user may still be on `_b`, so don't assume `_a`).
+    // Device-committed per-location indices (boot + vbmeta_system), passed to
+    // `build_testkey_arb_overlays_for_floors` as fixed floors. On an EDL-start
+    // flash the caller passes component-wise maxima already read across BOTH
+    // slots; otherwise read the ACTIVE slot here (a first-time user may still
+    // be on `_b`, so don't assume `_a`).
     let (dev_boot_idx, dev_vbs_idx) = match device_floors {
         Some(floors) => floors,
         None => {
@@ -574,11 +573,11 @@ pub(crate) fn build_testkey_arb_overlays_for_floors(
     };
     let (dev_boot_idx, dev_vbs_idx) = device_floors;
     // 1. Inspect base vbmeta (caller override for cross-region, else firmware's)
-    //    and the partitions it chains. Re-sign only the ones we can handle and
-    //    update their chain partition descriptor public keys: a plain partition
-    //    name, an install image, and a resolvable A/B GPT label/LUN. Other
-    //    chained partitions (e.g. vbmeta_vendor) keep their stock chain partition
-    //    descriptor + stock image.
+    //    and the partitions it chains. Re-sign only the ones that qualify —
+    //    a plain partition name, an install image, and a resolvable A/B GPT
+    //    label/LUN — updating their chain partition descriptor public keys.
+    //    Other chained partitions (e.g. vbmeta_vendor) keep their stock chain
+    //    partition descriptor + stock image.
     let inst_vbmeta = vbmeta_base
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| fw_dir.join("vbmeta.img"));
@@ -603,7 +602,7 @@ pub(crate) fn build_testkey_arb_overlays_for_floors(
     {
         return Err("non-A/B boot/vbmeta_system rollback layout is unsupported".to_string());
     }
-    // 3. Rollback-protected install indices (boot + vbmeta_system when chained).
+    // 2. Rollback-protected install indices (boot + vbmeta_system when chained).
     let firmware_boot_idx = if has("boot") {
         idx_of(&inst_img("boot"))?
     } else {
@@ -626,7 +625,7 @@ pub(crate) fn build_testkey_arb_overlays_for_floors(
         )
     );
 
-    // 4. Automatic mode preserves the old max/floor behavior. Manual mode
+    // 3. Automatic mode preserves the max/floor behavior. Manual mode
     // validates each requested target against its corresponding device floor
     // and writes the exact requested value, including values below firmware.
     let (rollback_targets, need) = select_arb_rollback_targets(

@@ -25,17 +25,13 @@ fn main() {
     }
     emit_git_hash();
 
-    // `#[cfg(target_os = "windows")]` evaluates against the HOST that
-    // build.rs runs on, not the cargo --target. On a Linux runner
-    // doing `cargo xwin build --target x86_64-pc-windows-msvc`, the
-    // host is Linux, so the inner block was silently skipped — the
-    // resulting .exe shipped without the icon resource AND without
-    // the 8 MB stack-reserve linker arg. Explorer then fell back to
-    // the generic "unknown app" icon (taskbar still showed the
-    // in-app `iced::window::icon` because that's set at runtime via
-    // a separate path). Read `CARGO_CFG_TARGET_OS`, which cargo
-    // populates with the BUILD TARGET's OS for every script
-    // invocation, to gate this on the actual cross target.
+    // `#[cfg(target_os = "windows")]` would evaluate against the HOST build.rs
+    // runs on, not the cargo `--target`; on a Linux `cargo xwin` cross build
+    // that host is Linux, so the block would be skipped and the .exe would
+    // ship without the icon resource and the stack-reserve linker arg (the
+    // taskbar icon would still work, since that one is set at runtime via
+    // `iced::window::icon`). `CARGO_CFG_TARGET_OS` carries the BUILD TARGET's
+    // OS instead, so gate on that.
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     if target_os == "windows" {
         embed_windows_resources();

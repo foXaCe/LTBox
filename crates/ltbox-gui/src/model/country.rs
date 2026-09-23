@@ -2,8 +2,8 @@
 
 /// Country-code state for the Flash wizard. Sum type so the three valid
 /// states (not yet chosen / explicitly skipped / target picked) stay
-/// un-collapsible — the previous `Option<String>` + `bool` pair encoded the
-/// same with two fields and a doc-comment.
+/// un-collapsible — an `Option<String>` + `bool` pair would let invalid
+/// combinations compile.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) enum CountryAction {
     /// Popup hasn't been answered yet.

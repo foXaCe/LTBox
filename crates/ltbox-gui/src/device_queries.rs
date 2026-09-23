@@ -54,7 +54,7 @@ mod tests {
         polled(&mut app, "A", ConnectionStatus::Fastboot);
         app.device_info_popup = Some(("A".into(), DeviceInfoState::Loading));
         let _current = app.queries.start_lookup(LookupKind::Info);
-        // Panic fallbacks used to target whichever popup happened to be open.
+        // A panic fallback must not target whichever popup happens to be open.
         let _ = app.update(error(old, "", "old panic"));
         assert!(matches!(
             app.device_info_popup,

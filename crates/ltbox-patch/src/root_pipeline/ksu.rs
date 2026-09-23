@@ -296,9 +296,9 @@ fn ksu_ko_kver_matches(lower_filename: &str, kver: &str) -> bool {
 ///
 /// A kernel version alone does not identify a GKI: 5.10 ships as both
 /// `android12-5.10` and `android13-5.10`, and an LKM built for the wrong one
-/// loads and then leaves no root after a reboot, with no error to show for it
-/// (issue #93). `/proc/version` carries the branch, so read it rather than
-/// guessing from the version.
+/// loads and then leaves no root after a reboot, with no error to show for
+/// it. `/proc/version` carries the branch, so read it rather than guessing
+/// from the version.
 pub fn ksu_gki_branch(kernel_release: &str) -> Option<String> {
     let lower = kernel_release.to_ascii_lowercase();
     let start = lower.find("android")?;
@@ -637,7 +637,7 @@ pub(super) fn download_ksu_release_payload(
         tr_args!("log_ksu_latest_release", tag = tag)
     );
 
-    // -------- 1. Per-kernel `.ko` from release assets --------
+    // Per-kernel `.ko` from release assets.
     // KSU tags assets by kernel branch (`android15-6.6_kernelsu.ko`);
     // strip patch suffix from device kver before matching.
     let kver = kernel_version
@@ -683,7 +683,7 @@ pub(super) fn download_ksu_release_payload(
     }
 
     // Resolve the release-tag run once. It always supplies ksuinit and, when
-    // the release no longer publishes a raw .ko, supplies the LKM fallback.
+    // the release omits a raw .ko asset, supplies the LKM fallback.
     let (workflow, _) = super::provider_workflow(provider)
         .ok_or_else(|| LtboxError::Patch(format!("No KSU workflow for {provider:?}")))?;
     let run_id = client.workflow_run_for_tag(workflow, &tag).map_err(|e| {
@@ -738,7 +738,7 @@ pub(super) fn download_ksu_release_payload(
     if release_init.is_some() {
         return Ok(());
     }
-    // -------- 2. `ksuinit` binary via nightly.link --------
+    // `ksuinit` binary via nightly.link.
     let ksuinit_artifact = select_ksuinit_artifact(&artifact_names).ok_or_else(|| {
         LtboxError::Download(format!(
             "No arm64-safe `ksuinit*` workflow artifact on run {run_id} of {repo}"
@@ -832,7 +832,7 @@ pub fn download_ksu_payload_nightly(
             )
         })?;
 
-    // -------- 1. Kernel `.ko` --------
+    // Kernel `.ko`.
     let ko_artifact = select_ksu_nightly_ko_artifact(&artifact_names, &kver, device_branch)
         .ok_or_else(|| {
             LtboxError::Patch(format!(
@@ -853,7 +853,7 @@ pub fn download_ksu_payload_nightly(
         log,
     )?;
 
-    // -------- 2. ksuinit → `init` --------
+    // ksuinit → `init`.
     let init_artifact = select_ksuinit_artifact(&artifact_names).ok_or_else(|| {
         LtboxError::Patch(format!(
             "{repo} run {run_id}: no arm64-safe ksuinit artifact (got {artifact_names:?})"
@@ -983,7 +983,7 @@ mod tests {
 
     #[test]
     fn longer_minor_does_not_match_shorter_prefix() {
-        // Regression: unanchored `contains("6.1")` used to match 6.10/6.11/etc.
+        // An unanchored `contains("6.1")` would also match 6.10/6.11/etc.
         assert!(!ksu_ko_kver_matches("android15-6.10_kernelsu.ko", "6.1"));
         assert!(!ksu_ko_kver_matches("android15-6.11_kernelsu.ko", "6.1"));
         assert!(!ksu_ko_kver_matches("android15-6.12_kernelsu.ko", "6.1"));
@@ -1059,9 +1059,9 @@ mod tests {
 
     #[test]
     fn ksu_nightly_artifact_selection_picks_new_lkm_naming() {
-        // Real artifact list emitted by 2026 KernelSU / KSU-Next /
-        // SukiSU / ReSukiSU nightlies — bare `<branch>-<kver>-lkm`
-        // wrapper instead of the old `*_kernelsu.ko` filename.
+        // Real artifact list emitted by KernelSU / KSU-Next / SukiSU /
+        // ReSukiSU nightlies — bare `<branch>-<kver>-lkm` wrapper, distinct
+        // from the legacy `*_kernelsu.ko` filename this matcher also accepts.
         let artifacts = vec![
             "manager".to_string(),
             "ksud-aarch64-linux-android".to_string(),
@@ -1112,7 +1112,7 @@ mod tests {
 
     #[test]
     fn a_known_branch_picks_its_own_module_at_the_same_kernel_version() {
-        // The issue-93 shape: one kernel version, two branches published.
+        // One kernel version, two branches published.
         let artifacts = vec![
             "android13-5.10-lkm".to_string(),
             "android12-5.10-lkm".to_string(),
@@ -1145,8 +1145,8 @@ mod tests {
 
     #[test]
     fn a_repo_without_the_devices_branch_finds_nothing() {
-        // Failing loudly beats a module that loads and then drops root on the
-        // next boot, which is what the silent mismatch did.
+        // Failing loudly beats silently loading a module that then drops
+        // root on the next boot.
         let artifacts = vec!["android13-5.10-lkm".to_string()];
         assert_eq!(
             select_ksu_nightly_ko_artifact(&artifacts, "5.10", Some("android12")),

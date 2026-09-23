@@ -114,7 +114,7 @@ impl App {
     /// `ForceCloseSoftwareFix` without a constructor off Windows, which
     /// `-D dead-code` rejects. Nothing here acts on its own: `poll_software_fix`
     /// and `can_close_software_fix` hold the runtime `cfg!(windows)` guards, so
-    /// elsewhere `running` is only ever set by the demo scene.
+    /// off Windows `running` can only become true through the demo scene.
     fn software_fix_banner(&self) -> Element<'_, Message> {
         let label = if self.software_fix.closing {
             "software_fix_closing"
@@ -403,11 +403,10 @@ impl App {
             container(
                 // Padding has to scale with the corner radius: M3 states
                 // the relationship as `outer radius - padding = inner
-                // radius`, so the 10/18 inset that suited a 12 px corner
-                // leaves text crowding the curve at 32 px. A uniform 24
-                // keeps a comfortable 8 px inner radius and reads evenly
-                // on all four sides, which the old asymmetric values did
-                // not.
+                // radius`. An asymmetric 10/18 inset fits a 12 px corner but
+                // leaves text crowding the curve at this card's 32 px
+                // corner; a uniform 24 keeps a comfortable 8 px inner
+                // radius and reads evenly on all four sides.
                 container(device_card_inner)
                     .padding(DEVICE_CARD_PADDING)
                     .width(Length::Fill),
@@ -418,10 +417,10 @@ impl App {
                 // the mode offers, while keeping the same elevation-zero
                 // outline treatment as the surrounding cards.
                 //
-                // Deliberately no type escalation — the connected device
-                // is the subject of the whole app, but the card is mostly
-                // reference data and shouting it was already tried and
-                // rejected.
+                // Deliberately no type escalation: the connected device is
+                // the subject of the whole app, but the card is mostly
+                // reference data, and a shouted treatment would overstate
+                // that.
                 theme::surface_card_style(t, theme::SurfaceLevel::Brightest, theme::shape::LG)
             }),
         );
@@ -485,9 +484,9 @@ impl App {
         .style(|t: &Theme| {
             theme::surface_card_style(t, theme::SurfaceLevel::Default, theme::shape::MD)
         });
-        // Only while an operation runs. Idle, this was a whole card spending
-        // itself on "nothing in progress"; running, it is the only way back to
-        // a flow the user navigated away from, so it cannot just be deleted.
+        // Shown only while an operation runs: idle, a whole card spent on
+        // "nothing in progress" adds nothing; running, it is the only way
+        // back to a flow the user navigated away from, so it must stay.
         if busy_navigation_target(self.operation.is_running(), self.operation.view()).is_some() {
             let resume = button(
                 row![

@@ -249,8 +249,8 @@ mod tests {
 
     #[test]
     fn negative_original_size_rejected_not_panic() {
-        // Regression: original_size = -1 used to bit-cast to u64::MAX and
-        // panic at the slice instead of returning LtboxError::Config.
+        // original_size = -1 would bit-cast to u64::MAX and panic at the
+        // slice instead of returning LtboxError::Config.
         let mut plain = Vec::new();
         plain.extend_from_slice(&(-1i64).to_le_bytes());
         plain.extend_from_slice(SIGNATURE);

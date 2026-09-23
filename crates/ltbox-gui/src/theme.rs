@@ -439,12 +439,12 @@ pub fn iced_palette(seed: ThemeSeed, dark_mode: bool) -> iced::theme::Palette {
     }
 }
 
-/// Probe `iced::Theme` for the active mode. We don't store a flag on
-/// the theme directly, so the heuristic looks at `palette().background`
-/// — light backgrounds have a high red channel (M3 surface tones land
-/// at `0xFB+` on light), dark ones at `0x13+`. Centralised so both
-/// `theme::tooltip_style` (and the rest of this module) and the GUI
-/// call sites agree on a single source of truth.
+/// Probe `iced::Theme` for the active mode. No flag is stored on the theme
+/// directly, so the heuristic looks at `palette().background` — light
+/// backgrounds have a high red channel (M3 surface tones land at `0xFB+`
+/// on light), dark ones at `0x13+`. Centralised so both `theme::tooltip_style`
+/// (and the rest of this module) and the GUI call sites agree on a single
+/// source of truth.
 pub fn is_dark(t: &iced::Theme) -> bool {
     t.palette().background.r < 0.5
 }
@@ -476,10 +476,9 @@ pub mod state {
 }
 
 /// M3 state-layer alpha for an `iced::widget::button::Status` — `0.0`
-/// when idle, `HOVER` on hover, `PRESSED` while pressed. Centralises
-/// the inline `match status { Hovered => HOVER, Pressed => PRESSED,
-/// _ => 0.0 }` pattern that was scattered across the GUI's button
-/// style closures.
+/// when idle, `HOVER` on hover, `PRESSED` while pressed. Centralises the
+/// `match status { Hovered => HOVER, Pressed => PRESSED, _ => 0.0 }` pattern
+/// so button style closures share one implementation.
 pub fn state_alpha(status: iced::widget::button::Status) -> f32 {
     use iced::widget::button::Status;
     match status {
@@ -700,27 +699,18 @@ pub fn surface_card_style(
     }
 }
 
-/// Shadow for a full-height drawer that overlaps content sideways.
-///
-/// [`elevation`] models M3's downward key light, which suits a card or a
-/// dialog floating above what is under it. A rail that spans the window
-/// overlaps its neighbour horizontally, so a downward offset casts onto the
-/// status bar it sits against and casts nothing onto the content it actually
-/// covers. This offsets along the leading edge instead, with no vertical
-/// component.
-/// `openness` is how far the drawer is open, 0.0 closed to 1.0 open. The
-/// shadow rides it so it fades out with the width instead of holding full
-/// strength through the collapse and then vanishing in one frame.
 /// Width of the drawer's cast shadow when fully open.
 pub const DRAWER_EDGE_SHADOW_WIDTH: f32 = 14.0;
 
-/// The hover drawer casts along its trailing edge only.
+/// Gradient cast along a full-height drawer's trailing edge.
 ///
-/// A container `Shadow` cannot do this: its blur spreads in every direction and
-/// only the horizontal offset trims one side, so a full-height panel gets a
-/// halo above and below where there is no offset to cancel it. Those edges meet
-/// the title bar and the status bar, and the halo reads as a smudge on both.
-/// A gradient strip laid beside the panel casts to the right and nowhere else.
+/// [`elevation`]'s downward offset would land on the status bar rather than
+/// the content the drawer covers, and a container `Shadow` blurs in every
+/// direction, leaving a halo against the title and status bars. A gradient
+/// strip beside the panel casts to one side only.
+///
+/// `openness` runs from 0.0 (closed) to 1.0 (open); the shadow fades with it
+/// instead of vanishing in one frame at the end of the collapse.
 pub fn drawer_edge_gradient(dark_mode: bool, openness: f32) -> iced::Background {
     use iced::{Color, gradient};
     let t = openness.clamp(0.0, 1.0);

@@ -11,7 +11,7 @@ const SETTINGS_ROW_HEIGHT: f32 = 56.0;
 const SETTINGS_CONTROL_HEIGHT: f32 = 40.0;
 
 /// Material switch bound to `on_toggle(!selected)`. The message is a parameter
-/// because more than one setting is a plain on/off now.
+/// because more than one setting is a plain on/off toggle.
 fn settings_switch(
     selected: bool,
     on_toggle: impl Fn(bool) -> Message,

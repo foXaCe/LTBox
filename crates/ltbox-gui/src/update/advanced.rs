@@ -760,7 +760,7 @@ impl App {
                         let Some(target_code) = self.adv_wizard.country.clone() else {
                             return Task::none();
                         };
-                        // Re-resolve the loader against the NOW-connected model:
+                        // Re-resolve the loader against the currently connected model:
                         // selections may predate this device (e.g. a `.melf` needs
                         // its Sahara manifest only when the live device is TB323FU).
                         // Pick-time resolve (AdvWizBrowseDone) keeps Confirm
@@ -917,10 +917,9 @@ impl App {
                 if let Some(dir) = self.adv_wizard.output_dir.clone()
                     && let Err(err) = open_in_file_manager(&dir)
                 {
-                    // Surface the failed command + path in the log
-                    // so the user can see what was tried — silent
-                    // no-op was the old behaviour and made missing
-                    // xdg-open invisible on Linux.
+                    // Surface the failed command + path in the log so the user
+                    // can see what was tried; a silent no-op would make a
+                    // missing `xdg-open` invisible on Linux.
                     self.log_push(format!(
                         "[GUI] {}",
                         tr_args!("log_gui_open_folder_failed", error = err)

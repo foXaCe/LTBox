@@ -1,6 +1,6 @@
 //! Advanced-menu single-file workers: region convert, devinfo/country
 //! patch, ARB patch, vbmeta rebuild, xml convert. Each takes one input
-//! image and writes patched output. Extracted from the update_adv handler.
+//! image and writes patched output.
 
 use crate::{AdvAction, DeviceRegion, PhaseReporter};
 use ltbox_core::tr_args;
@@ -113,11 +113,9 @@ pub(crate) fn advanced_file_worker(
         }
         AdvAction::ConvertXml => {
             ltbox_core::live!(log, "[Crypto] {}", phases.marker(1));
-            // `input` is now the folder holding the encrypted
-            // `*.x` pack (picker moved from file→folder so
-            // users don't have to repeat the dialog for each
-            // file). Iterate every `*.x`, decrypt to `*.xml`
-            // in `output_dir`.
+            // `input` is the folder holding the encrypted `*.x` pack, so
+            // the dialog need not repeat per file. Decrypt every `*.x` to
+            // `*.xml` in `output_dir`.
             let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(input)
                 .map_err(|e| {
                     tr_args!(
@@ -339,7 +337,6 @@ pub(crate) fn advanced_file_worker(
                     .file_stem()
                     .map(|s| s.to_string_lossy().to_string())
                     .unwrap_or_else(|| name.to_string());
-                // v2 naming: `<stem>_modified.img`.
                 let output = output_dir.join(format!("{stem}_modified.img"));
                 match ltbox_patch::region::patch_country_code(
                     &src, &output, &old_code, new_code, EU, field_only,
@@ -418,8 +415,8 @@ pub(crate) fn advanced_file_worker(
                 Some(info.algorithm.as_str())
             };
 
-            // Advanced is file-only — user supplies the partition images whose
-            // embedded descriptors should be imported (v2 dumps them).
+            // Advanced is file-only — the user supplies the partition images
+            // whose embedded descriptors should be imported.
             let partition_image_candidates: &[&str] = &[
                 "dtbo.img",
                 "dtbo_a.img",

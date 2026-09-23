@@ -392,9 +392,8 @@ impl App {
                     .then_some(cfg.manual_rollback_indices)
                     .flatten();
                 let rollback_label = self.t(cfg.modify_rollback.label_key()).to_string();
-                // Split the old single "Starting: modify_region=… rollback=…
-                // wipe=…" line into three labelled, translated lines — the
-                // raw variable dump read like debug output.
+                // Three labelled, translated lines read better than one raw
+                // "modify_region=… rollback=… wipe=…" variable dump.
                 let region_yn = self
                     .t(if cfg.modify_region {
                         "common_yes"
@@ -418,7 +417,7 @@ impl App {
                     tr_args!("live_flash_data_wipe", value = wipe_yn)
                 ));
                 let rb_mode = cfg.modify_rollback.to_mode();
-                // NOTE: the EDL-start ARB downgrade (On/Auto → Off when the
+                // The EDL-start ARB downgrade (On/Auto → Off when the
                 // device can't be Fastboot/ADB-probed) is applied inside the
                 // worker, AFTER the firmware's vendor_boot fingerprint is
                 // known — so a TB323FU target (which reads its rollback index
@@ -900,9 +899,9 @@ mod tests {
 
     #[test]
     fn every_rollback_setting_starts_the_flash() {
-        // Manual is the only setting that carries indices. Requiring them of
-        // the others aborted the run after the phased op had already begun,
-        // leaving the UI parked on phase 1 with an empty log.
+        // Manual is the only setting that carries indices; the other settings
+        // must not be blocked on having them, or the run stalls on phase 1
+        // with an empty log after the phased op has already begun.
         for setting in [
             RollbackSetting::On,
             RollbackSetting::Auto,

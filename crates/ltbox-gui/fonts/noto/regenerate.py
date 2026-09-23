@@ -22,8 +22,8 @@ when upgrading the upstream Noto release.
     .venv/bin/python regenerate.py
 
 Dynamic text (file paths, device names, log output) may contain characters
-outside the subset; those fall back to system fonts, which is the same behaviour
-as before and is why the subset only needs to cover the UI strings.
+outside the subset; those fall back to system fonts, which is why the subset
+only needs to cover the UI strings.
 """
 import json
 import pathlib

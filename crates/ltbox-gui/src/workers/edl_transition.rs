@@ -1,5 +1,5 @@
 //! EDL-entry helpers: route the device into EDL/9008 from ADB,
-//! Fastboot, or a manual trigger. Extracted from `main.rs`.
+//! Fastboot, or a manual trigger.
 
 use crate::{ConnectionStatus, EdlEntryAction, edl_entry_action};
 use ltbox_core::tr_args;
@@ -100,9 +100,9 @@ pub(crate) fn reboot_adb_to_edl(
     // claim, retried + bucketed into `check_device_state` →
     // `Some("unauthorized")`, and the worker would bail to
     // `wait_for_manual_edl` even with the device fully authorized.
-    // `check_device` now accepts only `Device` state, so use
-    // `check_device_state` here — recovery-state ADB can also seed the
-    // serial before issuing `reboot edl`.
+    // `check_device` accepts only `Device` state; use `check_device_state`
+    // here so recovery-state ADB can also seed the serial before issuing
+    // `reboot edl`.
     let state = match mgr.check_device_state() {
         Ok(s) => s,
         Err(e) => {

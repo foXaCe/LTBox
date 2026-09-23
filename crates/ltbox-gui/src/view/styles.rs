@@ -69,10 +69,10 @@ pub(crate) fn m3_text_input_style(t: &Theme, status: text_input::Status) -> text
             with_alpha(p.on_surface, 0.04).into()
         } else {
             // M3 outlined fields have a transparent container — the
-            // outline alone defines them. `surface_container_lowest` was
-            // fine on light but in dark it is `0x0E0E13`, i.e. *darker*
-            // than the card underneath, so every field read as a hole
-            // punched in the panel instead of a control sitting on it.
+            // outline alone defines them. `surface_container_lowest` is
+            // `0x0E0E13` in dark, *darker* than the card underneath, so it
+            // would read as a hole punched in the panel rather than a
+            // control sitting on it.
             iced::Color::TRANSPARENT.into()
         },
         border: iced::Border {
@@ -576,13 +576,12 @@ pub(crate) fn sel_card_style_for(t: &Theme, selected: bool, destructive: bool) -
 /// MD radius as [`sel_card_style`] so the bg fill clips to the rounded
 /// shape instead of bleeding out as a square.
 ///
-/// The three states have to be rankable at a glance. They used to be
-/// `primary @ 12%` (selected) vs `primary @ 8%` (hover) — a 4% delta that
-/// left the 1 px → 2 px border as the only reliable cue, so a hovered
-/// card read as selected. Selection now moves to its own opaque tonal
-/// role (`secondary_container`) while hover stays a translucent state
-/// layer over the resting fill, which keeps "pointer is here" and "this
-/// is your choice" on separate visual channels.
+/// The three states have to be rankable at a glance, so selection and hover
+/// live on separate visual channels: selection is its own opaque tonal role
+/// (`secondary_container`), while hover stays a translucent state layer over
+/// the resting fill. A shared `primary` alpha for both (12% selected vs 8%
+/// hover) would leave only the 1 px → 2 px border as a reliable cue, and a
+/// hovered card would read as selected.
 pub(crate) fn sel_card_btn_style(
     t: &Theme,
     status: button::Status,

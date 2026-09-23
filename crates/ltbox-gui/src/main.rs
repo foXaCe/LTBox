@@ -1,5 +1,5 @@
 #![windows_subsystem = "windows"]
-//! LTBox GUI — iced desktop shell for the v3.0.0 Rust rewrite.
+//! LTBox GUI — iced desktop shell.
 //!
 //! Orchestrates `ltbox-core`, `ltbox-device`, `ltbox-patch` through a
 //! sidebar + wizard UX. [`main`] handles startup (single-instance lock,
@@ -7,7 +7,7 @@
 //! state machine, the device poll subscription, persisted settings,
 //! and the active palette.
 //!
-//! Wizards: Flash · SystemUpdate · Root · Unroot · Reboot · Advanced.
+//! Wizards: Flash · SystemUpdate · Root · Unroot · KonaBess · Reboot · Advanced.
 //! Sub-modules: [`theme`] M3 tokens · [`settings_store`] `settings.json`
 //! in the user config dir · [`stdout_tap`] native-crate log capture.
 
@@ -221,8 +221,8 @@ fn main() -> iced::Result {
     }
     // Linux/X11 renderer default. On some X11 + Mesa/driver combos wgpu
     // selects a Vulkan adapter whose X11 surface/device creation fails, so
-    // the window never appears and `./ltbox` looks dead (issue #69). OpenGL
-    // is robust there and more than enough for this UI, so default the wgpu
+    // the window never appears and `./ltbox` looks dead. OpenGL is robust
+    // there and more than enough for this UI, so default the wgpu
     // backend to GL on an X11 session when the user hasn't picked one. Wayland
     // keeps the wgpu default (Vulkan), which the Linux roadmap relies on for
     // recent Nvidia. Override anytime, e.g. `WGPU_BACKEND=vulkan ./ltbox`.
@@ -457,8 +457,8 @@ fn main() -> iced::Result {
         include_bytes!("../fonts/noto/NotoSansSC-Bold.subset.otf") as &[u8],
         // Latin-only, for the few slots that want fixed-width digits and
         // letters: file paths and country codes. `iced::Font::MONOSPACE` names
-        // a family the bundle does not carry, so it fell through to whatever
-        // the system offered — Courier New on Windows.
+        // a family the bundle does not carry, so it would fall through to
+        // whatever the system offers — Courier New on Windows.
         include_bytes!("../fonts/noto/NotoSansMono-Regular.subset.ttf") as &[u8],
     ] {
         app = app.font(bytes);
@@ -786,13 +786,11 @@ fn adv_output_dir(action: AdvAction) -> std::path::PathBuf {
 
 /// Launch the platform file manager on `path`.
 ///
-/// Returns `Ok(())` only when a launcher actually accepted the spawn
-/// — previously every error path was a `let _ = …` swallow, which on
-/// Linux meant a missing `xdg-open` (or a desktop session without a
-/// MIME handler for `inode/directory`) silently no-op'd. Caller is
-/// expected to surface the returned error string in the GUI log /
-/// error popup so users know why the "Open Folder" button did
-/// nothing.
+/// Returns `Ok(())` only when a launcher actually accepted the spawn, so a
+/// missing `xdg-open` (or a Linux desktop session without a MIME handler for
+/// `inode/directory`) surfaces instead of silently no-op'ing. Callers must
+/// show the returned error in the GUI log / error popup so users know why
+/// "Open Folder" did nothing.
 fn open_in_file_manager(path: &std::path::Path) -> std::result::Result<(), String> {
     #[cfg(windows)]
     {
@@ -1153,11 +1151,6 @@ fn busy_navigation_target(busy: bool, busy_view: Option<View>) -> Option<View> {
     if busy { busy_view } else { None }
 }
 
-// Icon glyphs for the current-step card (running / done / failed).
-// Colour is applied at the call site so running/done/failed each paint
-// with the palette role appropriate to the outcome (primary / success
-// / error).
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum RollbackSetting {
     On,
@@ -1220,10 +1213,6 @@ pub(crate) struct WorkflowConfig {
     pub(crate) country_action: CountryAction,
 }
 
-/// Sortable header cell for the FlashParts / DumpParts partition table.
-/// Renders `label` followed by either ▲/▼ (active sort, direction
-/// reflects `desc`) or ⇅ (sortable but inactive). Click fires `msg`.
-/// Transparent button so the cell reads as text first.
 /// Sort marker for a table column head.
 ///
 /// The active column shows the direction it is sorted in; the others show that
@@ -1248,6 +1237,10 @@ fn parts_sort_marker(is_active: bool, desc: bool) -> Element<'static, Message> {
         .into()
 }
 
+/// Sortable header cell for the FlashParts / DumpParts partition table.
+/// Renders `label` followed by either the active-sort arrow or the idle
+/// sortable marker; click fires `msg`. Transparent button so the cell reads
+/// as text first.
 fn parts_sort_header(
     label: String,
     is_active: bool,
@@ -1396,9 +1389,6 @@ fn parse_hwboardid_ram_storage(hwboardid: &str) -> (String, String) {
     (String::new(), String::new())
 }
 
-/// Classify a model → rollback-protection i18n key. Every supported model
-/// enforces AVB rollback protection except the PRC-only TB322FC, and an
-/// unknown model is assumed protected, so this is a TB322FC check.
 /// How the rollback-index popup renders a stored floor. Clicking a value
 /// steps to the next form and wraps back around.
 ///
@@ -1536,11 +1526,10 @@ pub(crate) fn current_unix_timestamp() -> Option<u64> {
 /// Rollback-protection answer for a model, or `""` when the model is
 /// unknown.
 ///
-/// `is_rollback_protected_model` is a deny-list (only TB322FC is exempt),
-/// so an empty model used to come back protected — the Dashboard then
-/// asserted "Yes" for a device it could not identify, and it was the one
-/// field that never degraded to the em dash the others show. A blank
-/// answer lets the Dashboard's existing empty-string path render `—`.
+/// `is_rollback_protected_model` is a deny-list (only TB322FC is exempt), so
+/// an unhandled empty model would read as protected — the Dashboard would
+/// assert "Yes" for a device it can't identify instead of falling back to
+/// the em dash every other field shows for an empty string.
 fn arb_from_model(model: &str) -> &'static str {
     if model.trim().is_empty() {
         ""
@@ -1604,8 +1593,7 @@ fn probe_connection_for_edl() -> Option<ConnectionStatus> {
 /// 64 MiB heavy-task pool via `spawn_blocking + run_heavy`, then sends
 /// the result through `done`. Both `run_heavy` panics and the
 /// `spawn_blocking` JoinError collapse to a single error string passed
-/// to `fallback`, so callers no longer hand-write the two-level
-/// `unwrap_or_else` chain.
+/// to `fallback`, sparing callers a two-level `unwrap_or_else` chain.
 fn task_heavy<T, F, G, D>(f: F, done: D, fallback: G) -> Task<Message>
 where
     F: FnOnce() -> T + Send + 'static,
@@ -3097,17 +3085,9 @@ impl App {
         }
     }
 
-    /// Resolve loader input from the unified picker path.
-    ///
-    /// The picker offers `.melf` or a Sahara `.xml`/`.x` manifest according
-    /// to the connected model. A directory is still
-    /// accepted for backwards compatibility with older recents entries
-    /// and is resolved via [`find_edl_loader`].
     /// Error to surface for a finished Firehose GPT scan: the worker's own
     /// failure, or a scan that came back with no partitions at all. `None`
-    /// means the table is usable and the wizard may advance. Both partition
-    /// wizards run the same scan, but only one of them used to notice the
-    /// empty case.
+    /// means the table is usable and the wizard may advance.
     fn parts_scan_outcome(&self, error: Option<String>, rows_empty: bool) -> Option<String> {
         error.or_else(|| rows_empty.then(|| self.t("err_parts_scan_empty").to_string()))
     }
@@ -3127,6 +3107,10 @@ impl App {
         }
     }
 
+    /// Resolve loader input from the unified picker path. The picker offers
+    /// `.melf` or a Sahara `.xml`/`.x` manifest according to the connected
+    /// model; a directory is also accepted, for older recents entries, and
+    /// resolved via [`find_edl_loader`].
     fn resolve_loader_input(&mut self, selected_path: &str) -> std::result::Result<String, String> {
         let path = std::path::Path::new(selected_path);
         if path.is_file() {
@@ -3456,10 +3440,10 @@ impl App {
 
     /// True when the dashboard poll has placed the device in a mode
     /// any wizard can transition out of (`ensure_*` helpers + the
-    /// flash/sysupdate bridges). Used to gate every wizard's final
-    /// "Start" button — `None` and `AdbUnauthorized` mean we can't
-    /// even start the operation, so spawning a worker that would
-    /// immediately bail with "no device" is just noise.
+    /// flash/sysupdate bridges). Gates every wizard's final "Start"
+    /// button — `None` and `AdbUnauthorized` mean the operation can't
+    /// even start, so spawning a worker that would immediately bail
+    /// with "no device" is noise.
     fn device_reachable(&self) -> bool {
         matches!(
             self.device.connection,
@@ -3754,9 +3738,9 @@ mod tests {
 
     #[test]
     fn a_refused_loader_pick_clears_the_path_and_blocks_next() {
-        // Previously each wizard hand-rolled this: most left the old
-        // loader_path in place on a bad pick, and only KonaBess gated Next on
-        // the error, so the rest advanced on a loader they had just refused.
+        // Guards against a per-wizard hand-rolled version of this check that
+        // left a stale loader_path in place on a bad pick and did not gate
+        // Next on the error, letting a wizard advance on a refused loader.
         let dir = tempfile::tempdir().unwrap();
         let good = dir.path().join("xbl_s_devprg_ns.melf");
         std::fs::write(&good, b"loader").unwrap();
@@ -3786,8 +3770,8 @@ mod tests {
 
     #[test]
     fn a_loader_pick_no_longer_overwrites_why_the_scan_failed() {
-        // Both partition wizards used to funnel loader errors into
-        // `scan_error`, so re-picking a loader erased the scan failure.
+        // Guards against loader errors funneling into `scan_error`, which
+        // would let re-picking a loader erase the scan failure.
         let dir = tempfile::tempdir().unwrap();
         let bad = dir.path().join("not-a-loader.txt");
         std::fs::write(&bad, b"nope").unwrap();
@@ -4010,9 +3994,8 @@ mod tests {
 
     #[test]
     fn a_manifest_missing_its_images_cannot_leave_the_loader_step() {
-        // The whole point of checking at pick time: half an extracted pack
-        // used to sail through the wizard and only fail once the device had
-        // already been pushed into EDL.
+        // Checked at pick time so an incomplete extracted pack can't sail
+        // through the wizard and fail only after the device is in EDL.
         let dir = tempfile::tempdir().unwrap();
         let manifest = manifest_pack(dir.path(), &["prog_firehose_ddr.elf"]);
 
@@ -4057,9 +4040,10 @@ mod tests {
 
     #[test]
     fn root_and_unroot_loader_steps_upgrade_a_tb323fu_melf_to_the_manifest() {
-        // Every other wizard resolved the pick through `resolve_loader_input`;
-        // these two assigned the raw path, so a TB323FU `.melf` reached the
-        // Sahara handshake without the manifest it needs.
+        // Guards against Root/Unroot assigning the raw picked path instead of
+        // routing through `resolve_loader_input` like every other wizard,
+        // which would let a TB323FU `.melf` reach the Sahara handshake
+        // without the manifest it needs.
         let dir = tempfile::tempdir().unwrap();
         let melf = dir.path().join("xbl_s_devprg_ns.melf");
         std::fs::write(&melf, b"loader").unwrap();
@@ -4837,7 +4821,9 @@ mod tests {
         }
     }
 
-    // Wizard state-machine tests ------------------------------------------
+    // =========================================================================
+    // Wizard state-machine tests
+    // =========================================================================
 
     #[test]
     fn flash_wizard_next_back_round_trip() {
@@ -6143,9 +6129,9 @@ mod tests {
 
     #[test]
     fn dashboard_offers_resume_only_while_an_operation_runs() {
-        // The idle "no operation" card is gone, but the running state still
-        // has to offer a way back into the flow the user navigated away from,
-        // behind the same guard.
+        // No idle "no operation" card; the running state still has to offer
+        // a way back into the flow the user navigated away from, behind the
+        // same guard.
         let source = include_str!("view/dashboard.rs");
         assert!(source.contains("Message::ResumeBusyOperation"));
         assert!(source.contains(

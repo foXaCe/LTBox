@@ -917,9 +917,9 @@ const CONSTRAINED_SLOTS: &[ConstrainedSlot] = &[
         }),
     },
     ConstrainedSlot {
-        // The disabled branch is a plain container today. Reserving the same
-        // arrow allowance as its enabled sibling keeps both fixed-width
-        // branches safe if it becomes a disabled pick list later.
+        // The disabled branch is a plain container, not a pick list, but
+        // reserving the same arrow allowance as its enabled sibling keeps
+        // both fixed-width branches safe if that changes.
         name: "settings.qcom-driver-disabled-pick-list",
         kind: SlotKind::PickList(PickListSlot {
             options: DRIVER_OPTIONS,

@@ -103,16 +103,10 @@ fn install_inner() -> Queue {
                         if emitted > 0 {
                             last_emit = Instant::now();
                         } else if last_emit.elapsed() >= INTERIM_EMIT_INTERVAL {
-                            // No `\n` yet — surface the most recent `\r`
-                            // segment so the log shows live progress.
-                            // Then compact `pending` so a CR-only
-                            // progress bar (no `\n` between updates)
-                            // can't grow `pending` without bound: drop
-                            // everything up to and including the last
-                            // `\r`, leaving only the in-flight segment.
-                            // The interim emit has already pushed the
-                            // last visible segment to the queue, so
-                            // truncation is safe.
+                            // No `\n` yet: surface the latest `\r` segment for
+                            // live progress, then drop everything up to it so
+                            // a CR-only progress bar can't grow `pending`
+                            // without bound (the segment is already emitted).
                             if emit_interim_progress(&pending, &q) {
                                 last_emit = Instant::now();
                                 if let Some(idx) = pending.iter().rposition(|&b| b == b'\r') {
@@ -120,12 +114,10 @@ fn install_inner() -> Queue {
                                 }
                             }
                         }
-                        // Safety net: even without interim emits (no `\r`
-                        // and no `\n` arriving), cap the buffer so a
-                        // pathological stream — e.g. raw binary on the
-                        // tap — can't grow it without bound. Keep the
-                        // tail so the next `\n` still produces a
-                        // recognisable line.
+                        // Cap the buffer even without `\r`/`\n` activity, so
+                        // a pathological stream (e.g. raw binary on the tap)
+                        // can't grow it unbounded; keep the tail so the next
+                        // `\n` still yields a usable line.
                         if pending.len() > PENDING_BUFFER_CAP {
                             let drop = pending.len() - PENDING_BUFFER_CAP;
                             pending.drain(..drop);

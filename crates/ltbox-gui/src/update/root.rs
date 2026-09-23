@@ -156,7 +156,7 @@ impl App {
                 pickers::pick_file_for(spec, &self.recent_paths, Message::FileSelected)
             }
             RootMsg::RootSelectFolder => {
-                // Historical field name; value is now a single EDL loader file.
+                // `folder_path` holds a single EDL loader file, not a folder.
                 // Always the picker: a remembered loader skips this step
                 // entirely, so arriving here means the user wants to choose.
                 self.pick_loader(|__v| Message::Root(RootMsg::RootLoaderChosen(__v)))
@@ -1012,7 +1012,8 @@ mod tests {
             }
             .root_route_label()
         };
-        // The pair that made #88 unreproducible from the reported log.
+        // Magisk and Magisk Forks must produce distinguishable labels, or a
+        // user's log report can't tell which route actually ran.
         assert_ne!(
             label(Some(Provider::Magisk)),
             label(Some(Provider::MagiskForks))

@@ -45,9 +45,9 @@ pub(super) fn resolve_backup_contents(
     unroot_type: UnrootType,
     device_model: &str,
 ) -> Result<BackupContents, String> {
-    // Legacy Magisk LKM backups can contain either target. Prefer boot when it
-    // is present, retaining the historical init_boot missing-file diagnostic
-    // when neither candidate exists. APatch GKI always restores boot.
+    // A Magisk LKM backup can contain either target. Prefer boot when
+    // present, falling back to the init_boot missing-file diagnostic when
+    // neither candidate exists. APatch GKI always restores boot.
     let root_target = match unroot_type {
         UnrootType::MagiskLkm => {
             if backup_dir.join(BackupRootTarget::Boot.filename()).is_file() {

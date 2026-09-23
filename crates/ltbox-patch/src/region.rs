@@ -388,7 +388,7 @@ fn detect_region_in_data(data: &[u8], patterns: &RegionPatternSet) -> DetectedRe
 
 /// Canonical Lenovo country / sales-region codes embedded in devinfo /
 /// persist / oemowninfo. Single source of truth for `detect_country_code`
-/// scans and the GUI country picker — callers used to keep private copies.
+/// scans and the GUI country picker.
 pub const KNOWN_COUNTRY_CODES: &[&str] = &[
     "CN", "KR", "JP", "US", "GB", "DE", "FR", "IT", "ES", "NL", "AT", "BE", "BG", "HR", "CY", "CZ",
     "DK", "EE", "FI", "GR", "HU", "IE", "LV", "LT", "LU", "MT", "PL", "PT", "RO", "SK", "SI", "SE",
@@ -621,9 +621,9 @@ fn count_occurrences(haystack: &[u8], needle: &[u8]) -> usize {
 /// Unequal-length replacement would shift every byte after the match and
 /// break AVB digests of the containing image — safer to refuse than to let
 /// the caller ship a corrupt vendor_boot. Python v2 used `bytes.replace`,
-/// which accepts unequal lengths silently; the Rust port surfaces the
-/// mismatch instead (the prior `assert_eq!` took down the GUI thread on a
-/// user-edited `config.json`).
+/// which accepts unequal lengths silently; returning an error here instead
+/// of asserting avoids taking down the GUI thread over a user-edited
+/// `config.json`.
 fn replace_in_place(data: &mut [u8], from: &[u8], to: &[u8]) -> Result<usize> {
     if from.len() != to.len() {
         return Err(LtboxError::Patch(format!(
@@ -798,9 +798,9 @@ mod tests {
     fn field_only_requires_leading_boundary() {
         let dir = tempfile::tempdir().unwrap();
 
-        // codex's case: a log string with zero slack — `...code CNXX\0\0\0`.
-        // Mid-block and `code `-prefixed, so the trailing NUL alone must NOT make
-        // it look like a field.
+        // A log string with zero slack — `...code CNXX\0\0\0`. Mid-block and
+        // `code `-prefixed, so the trailing NUL alone must NOT make it look
+        // like a field.
         let log_with_nul = b"xx Update country code CNXX\x00\x00\x00".to_vec();
         let src = dir.path().join("log.img");
         fs::write(&src, &log_with_nul).unwrap();

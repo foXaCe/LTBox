@@ -832,8 +832,8 @@ fn cleanup(dir: &Path) {
 mod tests {
     use super::*;
 
-    /// Weekly network smoke test for every installer LTBox may select.  It is
-    /// deliberately ignored: CI enables it with `weekly_fetch`.  Downloaded
+    /// Weekly network smoke test for every installer LTBox may select. It is
+    /// deliberately ignored: CI enables it with `weekly_fetch`. Downloaded
     /// installers stay in `tempfile` and only have their Authenticode signer
     /// read — never started — so this test cannot touch the driver store or
     /// hardware. It pins the production signer check to the real certificates.
@@ -1118,7 +1118,7 @@ mod tests {
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert!(b.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b, "successive OS RNG tokens must not collide");
-        // Must not be the old predictable pid-time-counter shape.
+        // Must not follow a predictable pid-time-counter shape.
         assert!(!a.contains('-'));
         assert!(!b.contains('-'));
     }

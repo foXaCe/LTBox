@@ -20,10 +20,9 @@ pub const USER_AGENT: &str = concat!("ltbox/", env!("CARGO_PKG_VERSION"));
 /// each time, which on a Magisk-update flow alone meant 5+ redundant
 /// TLS-config setups in seconds.
 ///
-/// Per-stage timeouts (15 s connect, 30 s recv-response, 600 s recv-body)
-/// replace the prior `timeout_global(120 s)` that guillotined slow-link
-/// downloads mid-body — see commit history for the upstream bug
-/// (`timeout: global` mid-payload on Lenovo / GitHub-release pulls).
+/// Per-stage timeouts (15 s connect, 30 s recv-response, 600 s recv-body),
+/// not a single global timeout, so a slow-link download (Lenovo /
+/// GitHub-release pulls) is not cut off mid-body once it is making progress.
 fn shared_agent() -> &'static ureq::Agent {
     use std::sync::OnceLock;
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();

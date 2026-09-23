@@ -1,4 +1,4 @@
-//! Off-UI-thread worker functions extracted from `main.rs`.
+//! Off-UI-thread worker functions, one module per operation.
 
 pub(crate) mod advanced;
 pub(crate) mod edl_transition;

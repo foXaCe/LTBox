@@ -1151,9 +1151,9 @@ impl App {
                 })
                 .unwrap_or_default();
 
-            // Picking a file used to need a double-click on the row, which
-            // nothing announced. The partition table already spells the same
-            // action as a folder button, so this borrows it.
+            // Picking a file uses the same folder-button affordance as the
+            // partition table, not a double-click on the row, since a
+            // double-click gesture announces nothing.
             let data_row = iced::widget::row![
                 container(cb).width(Length::Fixed(32.0)),
                 text(format!("LUN {idx}"))
@@ -1217,9 +1217,9 @@ mod tests {
 
     #[test]
     fn the_tri_state_marker_always_fits_its_cell() {
-        // Scaling the marker twice put it at 27 px inside a 26 px cell, which
-        // squeezed the erase badge flat while the checkbox beside it — scaled
-        // once — still looked right.
+        // Guards against double-scaling the marker: that would put it at
+        // 27 px inside this 26 px cell, squeezing the erase badge flat,
+        // while the checkbox beside it (scaled once) still fits.
         // Exercise compact, both sides of the class boundary, and expanded.
         for content_width in [756.0, 999.999, 1000.0, 1256.0, 4000.0] {
             let side = FLASH_PARTS_MARKER_SIZE;

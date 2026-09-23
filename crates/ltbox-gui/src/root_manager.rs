@@ -1,5 +1,5 @@
 //! Root-manager APK install helpers (push/install the Magisk/KernelSU/APatch
-//! manager app over ADB). Extracted from main.rs.
+//! manager app over ADB).
 
 use crate::*;
 

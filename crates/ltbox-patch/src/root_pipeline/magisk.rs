@@ -117,8 +117,7 @@ pub(super) fn fetch_nightly_apk_outer_zip(
 
     // Walk the extracted artifact recursively — some providers nest
     // their APK under `<artifact>/manager/`, `<arch>/`, or
-    // `app-release-arm64-v8a/`. Old non-recursive `read_dir` skipped
-    // those and reported "no .apk found after extract".
+    // `app-release-arm64-v8a/`, which a flat `read_dir` would miss.
     let mut apk_candidates: Vec<PathBuf> = Vec::new();
     collect_apks_recursive(&staging, &mut apk_candidates);
     if repo == "topjohnwu/Magisk" {

@@ -317,8 +317,8 @@ impl App {
             .on_press(Message::Window(WindowMsg::WindowMinimize))
             .padding(0)
             .style(|t: &Theme, status| {
-                // Palette-driven state layer. The old flat grey at 15% ignored
-                // the theme entirely and did not distinguish hover from press.
+                // Palette-driven state layer so hover and press stay
+                // distinguishable and follow the active theme.
                 let p = pal_of(t);
                 button::Style {
                     background: theme::state_layer_bg(status, p.on_surface).map(Into::into),
@@ -345,8 +345,8 @@ impl App {
             .on_press(Message::Window(WindowMsg::WindowToggleMaximize))
             .padding(0)
             .style(|t: &Theme, status| {
-                // Palette-driven state layer. The old flat grey at 15% ignored
-                // the theme entirely and did not distinguish hover from press.
+                // Palette-driven state layer so hover and press stay
+                // distinguishable and follow the active theme.
                 let p = pal_of(t);
                 button::Style {
                     background: theme::state_layer_bg(status, p.on_surface).map(Into::into),
@@ -369,9 +369,8 @@ impl App {
             .on_press(Message::Window(WindowMsg::WindowClose))
             .padding(0)
             .style(|t: &Theme, status| {
-                // Close keeps its distinct red wash, but on the `error` role
-                // rather than a hardcoded `rgb(0.9, 0.2, 0.2)` that stayed put
-                // across every theme seed and both modes.
+                // Close keeps its distinct red wash, drawn from the theme's
+                // `error` role so it adapts across every theme seed and mode.
                 let p = pal_of(t);
                 let hot = matches!(status, button::Status::Hovered | button::Status::Pressed);
                 button::Style {
@@ -889,8 +888,8 @@ impl App {
             content = content.push(trailing);
         }
 
-        // CSS draws this as one rounded box whose left border is simply
-        // thicker, so the heavy edge follows the corner curve. iced has no
+        // CSS draws this as one rounded box whose left border is thicker,
+        // so the heavy edge follows the corner curve. iced has no
         // per-side border width, and a 3px strip cannot render a 12px radius —
         // it came out as a straight bar butted against a rounded box. Nest
         // instead: an accent-filled outer box, and the container tone inset
@@ -1103,13 +1102,12 @@ impl App {
             Space::new().width(0).into()
         };
 
-        // `body` fills the remainder via `Length::Fill` so the button
-        // sits flush right with its natural width — the previous
-        // `Space::new().width(Fill)` between two `Shrink` siblings made
-        // the row's total width depend on each text's natural width,
-        // which under a long desc string overflowed the banner and left
-        // the button only a sliver — collapsing its label into a
-        // vertical glyph stack.
+        // `body` fills the remainder via `Length::Fill` so the button sits
+        // flush right with its natural width. A `Space::new().width(Fill)`
+        // between two `Shrink` siblings would instead size the row from
+        // each text's natural width, so a long desc string would overflow
+        // the banner and squeeze the button's label into a vertical glyph
+        // stack.
         let body = row![
             text(self.t(desc_key).to_string())
                 .size(theme::text_size::BODY_MEDIUM)
@@ -1231,8 +1229,8 @@ impl App {
                 background: Some(p.inverse_surface.into()),
                 border: iced::Border {
                     // M3 snackbars sit at the extra-small step and carry a
-                    // shadow; the pill radius this used to draw belongs to
-                    // chips and the nav indicator.
+                    // shadow, not the full pill radius that chips and the
+                    // nav indicator use.
                     radius: theme::shape::XS.into(),
                     ..Default::default()
                 },

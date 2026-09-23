@@ -115,7 +115,7 @@ impl Asm {
         }
     }
 
-    // ---- moves -----------------------------------------------------------
+    // Moves.
 
     pub fn movz_x(&mut self, rd: u32, imm16: u16, shift: u32) {
         self.word(0xD280_0000 | ((shift / 16) << 21) | (u32::from(imm16) << 5) | rd);
@@ -211,7 +211,7 @@ impl Asm {
         self.word(0xD538_4100 | rt);
     }
 
-    // ---- arithmetic / logical -------------------------------------------
+    // Arithmetic / logical.
 
     /// `add xd, xn, #imm12` (no shift, `imm12 <= 0xFFF`).
     pub fn add_imm_x(&mut self, rd: u32, rn: u32, imm12: u32) {
@@ -271,7 +271,7 @@ impl Asm {
         }
     }
 
-    // ---- loads / stores --------------------------------------------------
+    // Loads / stores.
 
     /// `ldr xt, [xn, #imm]` (unsigned offset, `imm` a multiple of 8).
     pub fn ldr_x_uoff(&mut self, rt: u32, rn: u32, imm: u32) {
@@ -334,7 +334,7 @@ impl Asm {
         self.word(0xC800_FC00 | (rs << 16) | (rn << 5) | rt);
     }
 
-    // ---- PC-relative addresses ------------------------------------------
+    // PC-relative addresses.
 
     /// `adr xd, .+byte_off` (signed 21-bit byte range, ±1 MiB).
     pub fn adr(&mut self, rd: u32, byte_off: i32) {
@@ -367,7 +367,7 @@ impl Asm {
         true
     }
 
-    // ---- branches & returns ---------------------------------------------
+    // Branches & returns.
 
     /// `ret` (`ret x30`).
     pub fn ret(&mut self) {

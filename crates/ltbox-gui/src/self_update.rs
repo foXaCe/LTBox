@@ -831,7 +831,7 @@ mod tests {
     use std::collections::{HashSet, VecDeque};
 
     /// Weekly download-only verification of every published direct-update
-    /// target.  This intentionally bypasses the updater entrypoint: files
+    /// target. This intentionally bypasses the updater entrypoint: files
     /// remain under `tempfile` and no installed program is replaced or run.
     #[test]
     #[ignore = "weekly_fetch: downloads and hashes every published self-update target"]

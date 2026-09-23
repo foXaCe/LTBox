@@ -3,10 +3,7 @@
 //! SKRoot patches the **kernel binary** (the image extracted from `boot.img`)
 //! directly — locating functions from the embedded kallsyms with no kernel
 //! source, symbol table, or rebuild — a different mechanism from the existing
-//! root providers. The port is landing bottom-up: the core analysis layers,
-//! patch-emission helpers, the `do_execve` root hook, directory hiding through
-//! `filldir64`, SELinux `avc_denied` / `audit_log_start` hooks, and root
-//! pipeline wiring are present.
+//! root providers.
 //!
 //! Ported from `abcz316/SKRoot-linuxKernelRoot`
 //! (`Lite_version/src/patch_kernel_root`), C++ → safe Rust with no C

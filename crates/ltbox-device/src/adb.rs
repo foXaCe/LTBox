@@ -415,11 +415,10 @@ impl AdbManager {
         const PREFIX: &str = "Linux version ";
         match self.shell_inner("cat /proc/version") {
             Ok(v) => {
-                // `find` + the rest-slice path used a hardcoded
-                // `start + 14` arithmetic that drifted silently if the
-                // prefix string ever changed; do the lookup via
-                // `find` + `strip_prefix` on the trimmed tail so the
-                // length stays in sync with the literal automatically.
+                // A hardcoded `start + 14` offset would drift silently if
+                // `PREFIX`'s length ever changed; `find` + `strip_prefix`
+                // on the trimmed tail keeps the offset in sync with the
+                // literal automatically.
                 let Some(start) = v.find(PREFIX) else {
                     return Ok(None);
                 };
@@ -713,13 +712,11 @@ fn is_adbd_dropped_after_reboot(msg: &str) -> bool {
         || lower.contains("device disconnected")
         || lower.contains("unexpected eof")
         || lower.contains("end of file")
-        // `LIBUSB_ERROR_IO` rusb stringifies as "Input/Output Error"
-        // (or "I/O error" in some versions). Observed in v3.0.8 Linux
-        // reports where adbd tore down the USB endpoint a hair earlier
-        // than usual; the reboot did fire, but the in-flight transaction
-        // surfaced as IO instead of PIPE. The doc comment above this
-        // function already claimed `LIBUSB_ERROR_IO` was handled — the
-        // actual matcher just hadn't been widened to include it.
+        // `LIBUSB_ERROR_IO` rusb stringifies as "Input/Output Error" (or
+        // "I/O error" in some versions) — observed on Linux (rusb 3.0.8)
+        // when adbd tears down the USB endpoint slightly earlier than
+        // usual, so the reboot's in-flight transaction surfaces as IO
+        // instead of PIPE.
         || lower.contains("input/output error")
         || lower.contains("i/o error")
 }
