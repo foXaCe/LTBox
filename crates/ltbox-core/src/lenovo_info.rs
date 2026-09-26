@@ -116,9 +116,10 @@ pub fn fetch_machine_info(serial: &str) -> Result<MachineInfo> {
         return Err(LtboxError::Other("empty serial".into()));
     }
     let agent = crate::downloader::build_agent();
-    let url = format!("{}?MachineNo={trimmed}", crate::obf::reveal(ENDPOINT_B64));
+    // `query` percent-encodes the serial; formatting it into the URL did not.
     let mut resp = agent
-        .get(&url)
+        .get(crate::obf::reveal(ENDPOINT_B64))
+        .query("MachineNo", trimmed)
         .call()
         .map_err(|e| LtboxError::Download(format!("Lenovo PTSTPD GET: {e}")))?;
     let env: Envelope = resp
