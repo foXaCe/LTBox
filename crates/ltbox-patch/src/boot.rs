@@ -131,13 +131,22 @@ pub fn register_magiskboot_host(path: std::path::PathBuf) -> Result<()> {
 /// Returns `None` for ordinary application invocations. The child inherits its
 /// working directory and patch flags from `Command`, never changing the host.
 pub fn dispatch_magiskboot_helper() -> Option<i32> {
-    let mut args = std::env::args();
+    // `args_os`: this runs on every launch, and `args` panics on a
+    // non-Unicode argument before the app has started.
+    let mut args = std::env::args_os();
     args.next();
-    if args.next().as_deref() != Some(HELPER_FLAG) {
+    if args.next().as_deref() != Some(std::ffi::OsStr::new(HELPER_FLAG)) {
         return None;
     }
+    let Ok(helper_args) = args
+        .map(std::ffi::OsString::into_string)
+        .collect::<std::result::Result<Vec<_>, _>>()
+    else {
+        eprintln!("magiskboot helper: arguments must be valid Unicode");
+        return Some(1);
+    };
     let full_args = std::iter::once("magiskboot".to_owned())
-        .chain(args)
+        .chain(helper_args)
         .collect();
     let cmds = magiskboot::base::CmdArgs::from_env_args(full_args);
     Some(
