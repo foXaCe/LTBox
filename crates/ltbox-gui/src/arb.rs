@@ -134,18 +134,15 @@ pub(crate) fn detect_arb_run(
     let temporary = tempfile::tempdir().map_err(|e| e.to_string())?;
     let mut session = open_edl_session(std::path::Path::new(&loader), log)?;
     ltbox_core::live!(log, "[ARB] {i_edl_dump}");
-    for slot in slots {
-        for (name, lun) in [("boot", 4), ("vbmeta_system", 0)] {
-            let partition = format!("{name}{slot}");
-            let output = temporary.path().join(format!("{partition}.img"));
-            session
-                .dump_partition(&partition, &output, 0, lun, log)
-                .map_err(|e| format!("dump {partition}: {e}"))?;
-            let index = ltbox_patch::avb::extract_image_avb_info(&output)
-                .map_err(|e| format!("{partition} AVB: {e}"))?
-                .rollback_index;
-            ltbox_core::live!(log, "[ARB] {partition} = {index}");
+    let both_slots = slots.len() > 1;
+    if let Err(error) = dump_slot_rollback_indices(&mut session, &slots, temporary.path(), log) {
+        // Dropping the session returns an EDL start to EDL for a retry.
+        // Otherwise nothing was written, so boot back to the system the
+        // query started from.
+        if !both_slots {
+            session.reset_tolerant(log);
         }
+        return Err(error);
     }
     ltbox_core::live!(log, "[ARB] {}", phases.marker(4));
     ltbox_core::live!(
@@ -156,6 +153,50 @@ pub(crate) fn detect_arb_run(
     ltbox_core::live!(log, "[ARB] {}", phases.marker(5));
     ltbox_core::live!(log, "[ARB] {i_reboot_system}");
     session.reset_tolerant(log);
+    Ok(())
+}
+
+/// Dump `boot` + `vbmeta_system` per slot and log each image's rollback index.
+///
+/// With both slots (an EDL start, where the active slot is unknown), a slot
+/// whose images carry no parseable AVB metadata is reported and skipped:
+/// stock rawprograms leave the `_b` images unwritten, so a factory or freshly
+/// flashed device has nothing to parse there. A failed dump is a transport
+/// error and still aborts, and at least one slot must be readable.
+fn dump_slot_rollback_indices(
+    session: &mut ltbox_device::edl::EdlSession,
+    slots: &[String],
+    temporary: &std::path::Path,
+    log: &mut Vec<String>,
+) -> Result<(), String> {
+    let tolerate_unreadable_slot = slots.len() > 1;
+    let mut readable_slots = 0usize;
+    for slot in slots {
+        let mut slot_readable = true;
+        for (name, lun) in [("boot", 4), ("vbmeta_system", 0)] {
+            let partition = format!("{name}{slot}");
+            let output = temporary.join(format!("{partition}.img"));
+            session
+                .dump_partition(&partition, &output, 0, lun, log)
+                .map_err(|e| format!("dump {partition}: {e}"))?;
+            match ltbox_patch::avb::extract_image_avb_info(&output) {
+                Ok(info) => {
+                    ltbox_core::live!(log, "[ARB] {partition} = {}", info.rollback_index);
+                }
+                Err(e) if tolerate_unreadable_slot => {
+                    ltbox_core::live!(log, "[ARB] {partition}: {e}");
+                    slot_readable = false;
+                }
+                Err(e) => return Err(format!("{partition} AVB: {e}")),
+            }
+        }
+        if slot_readable {
+            readable_slots += 1;
+        }
+    }
+    if readable_slots == 0 {
+        return Err("no slot has readable AVB metadata".to_string());
+    }
     Ok(())
 }
 
