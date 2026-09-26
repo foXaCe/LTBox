@@ -5092,10 +5092,10 @@ mod tests {
             include_str!("workers/flash/country.rs"),
             include_str!("workers/flash/simple.rs"),
         );
-        let edl_rs = include_str!("../../ltbox-device/src/edl.rs");
+        let rawprogram_rs = include_str!("../../ltbox-device/src/edl/rawprogram.rs");
 
         assert_template_call_replaces(
-            edl_rs,
+            rawprogram_rs,
             "log_edl_flash_program_cmd",
             &["label", "image", "lun", "start", "sectors"],
         );
