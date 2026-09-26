@@ -21,6 +21,7 @@ enum Event {
     Program(u64, usize),
     Erase(u64, usize),
     Payload(Vec<u8>),
+    Reset(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -90,6 +91,14 @@ impl BufRead for Transport {
 
 impl Write for Transport {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        // The drop-time `<power>` can follow a faulted transfer that left
+        // payload owed or responses unread, so it is recognised first.
+        if let Some(value) = power_command(bytes) {
+            self.events.lock().unwrap().push(Event::Reset(value));
+            self.payload_remaining = 0;
+            self.responses = Cursor::new(ACK.to_vec());
+            return Ok(bytes.len());
+        }
         if self.payload_remaining > 0 {
             assert!(bytes.len() <= self.payload_remaining);
             if self.fault == Some(Fault::DisconnectedPayload(self.program_count)) {
@@ -115,13 +124,13 @@ impl Write for Transport {
             return Ok(accepted);
         }
 
+        let xml = std::str::from_utf8(bytes).unwrap();
+        let document = roxmltree::Document::parse(xml).unwrap();
+        let command = document.root_element().first_element_child().unwrap();
         assert_eq!(
             self.responses.position() as usize,
             self.responses.get_ref().len()
         );
-        let xml = std::str::from_utf8(bytes).unwrap();
-        let document = roxmltree::Document::parse(xml).unwrap();
-        let command = document.root_element().first_element_child().unwrap();
         match command.tag_name().name() {
             "read" => {
                 assert_eq!(
@@ -192,6 +201,16 @@ impl Write for Transport {
 }
 
 impl QdlReadWrite for Transport {}
+
+/// The reset mode of a Firehose `<power>` command, if `bytes` is one.
+fn power_command(bytes: &[u8]) -> Option<String> {
+    let xml = std::str::from_utf8(bytes).ok()?;
+    let document = roxmltree::Document::parse(xml).ok()?;
+    let command = document.root_element().first_element_child()?;
+    command
+        .has_tag_name("power")
+        .then(|| command.attribute("value").unwrap_or_default().to_string())
+}
 
 struct Fixture {
     dir: PathBuf,
@@ -266,6 +285,7 @@ impl Fixture {
                 reset_on_drop: false,
             },
             lun_sectors: std::collections::BTreeMap::new(),
+            exited: false,
         };
         Self {
             dir,
@@ -457,6 +477,8 @@ fn delayed_final_ack_blocks_next_partition_until_released() {
     assert_eq!(while_waiting, expected_program(0, Some(1024)));
     let mut expected = expected_program(0, Some(1024));
     expected.extend(expected_program(1, Some(1024)));
+    // The worker drops the un-reset session when it finishes.
+    expected.push(Event::Reset("reset_to_edl".into()));
     assert_eq!(*events.lock().unwrap(), expected);
 }
 
@@ -647,4 +669,36 @@ fn rawprogram_efisp_erase_uses_zero_program_but_other_labels_keep_erase() {
             assert_eq!(*events, vec![Event::Erase(64, 3)]);
         }
     }
+}
+
+#[test]
+fn dropping_a_session_without_a_reset_returns_the_device_to_edl() {
+    let fixture = Fixture::new(512, false, None);
+    let events = Arc::clone(&fixture.events);
+    drop(fixture);
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![Event::Reset("reset_to_edl".into())]
+    );
+}
+
+#[test]
+fn an_explicit_reset_is_not_followed_by_a_drop_time_reset() {
+    let mut fixture = Fixture::new(512, false, None);
+    let events = Arc::clone(&fixture.events);
+    fixture.session.reset_tolerant(&mut Vec::new());
+    drop(fixture);
+    assert_eq!(*events.lock().unwrap(), vec![Event::Reset("reset".into())]);
+}
+
+#[test]
+fn a_failed_transfer_still_resets_to_edl_when_the_session_drops() {
+    let mut fixture = Fixture::new(512, false, Some(Fault::CommandNak(1)));
+    let events = Arc::clone(&fixture.events);
+    assert!(fixture.flash(2).is_err());
+    drop(fixture);
+    assert_eq!(
+        events.lock().unwrap().last(),
+        Some(&Event::Reset("reset_to_edl".into()))
+    );
 }

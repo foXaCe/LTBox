@@ -565,12 +565,22 @@ pub struct GptPartitionInfo {
 }
 
 /// EDL session: owns `QdlDevice`, exposes partition ops.
+///
+/// A session must leave Firehose through [`Self::reset`],
+/// [`Self::reset_tolerant`] or [`Self::reset_to_edl`]. One dropped without
+/// any of them (an early `?`, a forgotten error branch, a worker panic) sends
+/// `reset_to_edl` itself: left in Firehose, the device ignores the next
+/// Sahara Hello until it is power-cycled, and resetting to EDL never boots a
+/// possibly half-written slot.
 pub struct EdlSession {
     dev: QdlDevice<dyn QdlReadWrite>,
     /// Physical sector count per LUN, memoised for the rawprogram bounds
     /// check. The disk size does not change while a session is open, so a
     /// value stays valid even after the XML rewrites the GPT.
     lun_sectors: std::collections::BTreeMap<u8, Option<u64>>,
+    /// An explicit reset has been attempted, successful or not, so `Drop`
+    /// must not send a second one.
+    exited: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -838,7 +848,8 @@ impl EdlSession {
         // failure, which says nothing about the loader, still counts.
         publish_uploaded_loader(picked_loader);
 
-        // Keep reset_on_drop false to dodge qdl's recursive reset.
+        // Keep qdl's own reset_on_drop false to dodge its recursive reset;
+        // `EdlSession`'s `Drop` owns the missed-exit cleanup instead.
         dev.reset_on_drop = false;
 
         ltbox_core::live!(log, "[EDL] {}", tr("log_edl_firehose_configuring"));
@@ -853,6 +864,7 @@ impl EdlSession {
         Ok(Self {
             dev,
             lun_sectors: std::collections::BTreeMap::new(),
+            exited: false,
         })
     }
 
@@ -1572,6 +1584,7 @@ impl EdlSession {
     }
 
     pub fn reset(&mut self, log: &mut Vec<String>) -> Result<()> {
+        self.exited = true;
         ltbox_core::live!(log, "[EDL] {}", tr("log_edl_reset_cmd"));
         qdl::firehose_reset(&mut self.dev, &FirehoseResetMode::Reset, 2)
             .map_err(|e| EdlError::Session(format!("Reset failed: {e}")))?;
@@ -1599,6 +1612,7 @@ impl EdlSession {
     /// dump-only session so the next `open()` gets a fresh Hello —
     /// otherwise Sahara times out. Mirrors v2 qdl-rs default behavior.
     pub fn reset_to_edl(&mut self, log: &mut Vec<String>) -> Result<()> {
+        self.exited = true;
         ltbox_core::live!(log, "[EDL] {}", tr("log_edl_reset_to_edl_cmd"));
         qdl::firehose_reset(&mut self.dev, &FirehoseResetMode::ResetToEdl, 0)
             .map_err(|e| EdlError::Session(format!("reset_to_edl failed: {e}")))?;
@@ -2178,6 +2192,23 @@ impl EdlSession {
             .map_err(|e| EdlError::Session(format!("Patch failed: {e}")))?;
         }
         Ok(())
+    }
+}
+
+impl Drop for EdlSession {
+    fn drop(&mut self) {
+        if self.exited {
+            return;
+        }
+        // No caller log survives a drop; the live sink still carries these.
+        let mut log = Vec::new();
+        ltbox_core::live_debug!(
+            log,
+            "[EDL] session dropped without an explicit reset; returning the device to EDL"
+        );
+        if let Err(e) = self.reset_to_edl(&mut log) {
+            ltbox_core::live_debug!(log, "[EDL] drop-time reset_to_edl failed: {e}");
+        }
     }
 }
 

@@ -23,7 +23,7 @@ pub(crate) fn change_country_worker(
         )
     );
     // Create scratch + backup dirs BEFORE entering EDL: a setup failure here
-    // must not strand the device in EDL (EdlSession has no reset-on-drop).
+    // must not strand the device in EDL before any session exists to reset it.
     let work_dir = ltbox_core::app_paths::work_dir_for("change_country");
     let _ = std::fs::remove_dir_all(&work_dir);
     std::fs::create_dir_all(&work_dir)
