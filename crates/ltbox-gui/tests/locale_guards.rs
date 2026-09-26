@@ -422,11 +422,17 @@ fn scan_production_translation_sources() -> TranslationSourceScan {
             }
         }
 
+        // Test-only sources: integration tests, and `*_tests.rs` files that a
+        // `#[cfg(test)] #[path = "..."] mod` pulls out of their parent.
         if path
             .strip_prefix(workspace)
             .expect("scanned source must be under the workspace")
             .components()
             .any(|component| component.as_os_str() == "tests")
+            || path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with("_tests.rs"))
         {
             continue;
         }
