@@ -275,6 +275,21 @@ pub fn provider_workflow(provider: RootProvider) -> Option<(&'static str, &'stat
     })
 }
 
+/// Workflows that build a KernelSU-family provider's **release tags**, in
+/// preference order. Tagged payloads come from these runs only, never from a
+/// nightly. `release.yml` is the tag pipeline for every provider here; the
+/// build workflow is a fallback for tags it also builds (ReSukiSU does, the
+/// KernelSU-Next `-ci` workflow does not).
+pub fn provider_release_workflows(provider: RootProvider) -> &'static [&'static str] {
+    match provider {
+        RootProvider::KernelSU | RootProvider::SukiSU | RootProvider::ReSukiSU => {
+            &["release.yml", "build-manager.yml"]
+        }
+        RootProvider::KernelSUNext => &["release.yml", "build-manager-ci.yml"],
+        _ => &[],
+    }
+}
+
 /// Require manager artifacts for APatch-family nightly build choices.
 pub fn provider_has_nightly_manager(
     provider: RootProvider,

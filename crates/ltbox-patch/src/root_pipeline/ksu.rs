@@ -543,6 +543,68 @@ fn download_ksu_ko_artifact(
     Ok(())
 }
 
+/// The first successful run for `tag`, across the provider's release-tag
+/// workflows in order, whose artifacts supply what the release assets lack.
+///
+/// One tag push starts several runs (release, build, lint), so a run is
+/// chosen by what it carries rather than by list position: an artifact-less
+/// lint run can never be picked, and a workflow that does not build tags is
+/// simply passed over.
+fn resolve_tag_payload_run(
+    client: &GitHubClient,
+    provider: RootProvider,
+    tag: &str,
+    kver: &str,
+    device_branch: Option<&str>,
+    need_module: bool,
+    need_init: bool,
+) -> std::result::Result<(u64, Vec<WorkflowArtifact>), String> {
+    let workflows = super::provider_release_workflows(provider);
+    if workflows.is_empty() {
+        return Err(format!("no release workflow is known for {provider:?}"));
+    }
+    let mut tried = Vec::new();
+    for workflow in workflows {
+        let runs = match client.workflow_runs_for_tag(workflow, tag) {
+            Ok(runs) => runs,
+            Err(e) => {
+                tried.push(format!("{workflow}: {e}"));
+                continue;
+            }
+        };
+        if runs.is_empty() {
+            tried.push(format!("{workflow}: no successful run"));
+        }
+        for run_id in runs {
+            let artifacts = match client.workflow_artifact_details(run_id) {
+                Ok(artifacts) => artifacts,
+                Err(e) => {
+                    tried.push(format!("{workflow} run {run_id}: {e}"));
+                    continue;
+                }
+            };
+            let names: Vec<String> = artifacts.iter().map(|a| a.name.clone()).collect();
+            if tag_run_supplies(&names, kver, device_branch, need_module, need_init) {
+                return Ok((run_id, artifacts));
+            }
+            tried.push(format!("{workflow} run {run_id}: {names:?}"));
+        }
+    }
+    Err(tried.join("; "))
+}
+
+/// Whether a tag run's artifacts cover the payload pieces still missing.
+fn tag_run_supplies(
+    artifact_names: &[String],
+    kver: &str,
+    device_branch: Option<&str>,
+    need_module: bool,
+    need_init: bool,
+) -> bool {
+    (!need_module || select_ksu_nightly_ko_artifact(artifact_names, kver, device_branch).is_some())
+        && (!need_init || select_ksuinit_artifact(artifact_names).is_some())
+}
+
 fn stable_lkm_sources_exhausted(
     tag: &str,
     kver: &str,
@@ -682,24 +744,24 @@ pub(super) fn download_ksu_release_payload(
         return Ok(());
     }
 
-    // Resolve the release-tag run once. It always supplies ksuinit and, when
-    // the release omits a raw .ko asset, supplies the LKM fallback.
-    let (workflow, _) = super::provider_workflow(provider)
-        .ok_or_else(|| LtboxError::Patch(format!("No KSU workflow for {provider:?}")))?;
-    let run_id = client.workflow_run_for_tag(workflow, &tag).map_err(|e| {
+    // Resolve the one tag run that supplies whatever the release omitted:
+    // ksuinit, and the LKM when there is no release module asset.
+    let (run_id, artifacts) = resolve_tag_payload_run(
+        &client,
+        provider,
+        &tag,
+        &kver,
+        device_branch,
+        release_ko.is_none(),
+        release_init.is_none(),
+    )
+    .map_err(|e| {
         if release_ko.is_none() {
             stable_lkm_sources_exhausted(&tag, &kver, e)
         } else {
             LtboxError::Download(format!(
-                "No workflow run found for tag {tag} on {repo}: {e}"
+                "No workflow run for tag {tag} on {repo} supplies ksuinit: {e}"
             ))
-        }
-    })?;
-    let artifacts = client.workflow_artifact_details(run_id).map_err(|e| {
-        if release_ko.is_none() {
-            stable_lkm_sources_exhausted(&tag, &kver, e)
-        } else {
-            LtboxError::Download(format!("Cannot list artifacts for run {run_id}: {e}"))
         }
     })?;
     let artifact_names: Vec<String> = artifacts
@@ -908,6 +970,7 @@ mod tests {
         download_ksu_payload_nightly, ksu_gki_branch, ksu_ko_kver_matches,
         normalize_ksu_kernel_version, select_ksu_nightly_ko_artifact, select_ksu_release_ko_asset,
         select_ksuinit_artifact, select_skroot_manager_asset, stable_lkm_sources_exhausted,
+        tag_run_supplies,
     };
 
     const SHA256_LOWER: &str = "df471282e461086739bebb088aa07c7226158ffc7a8f5495c86d2e10dba37e83";
@@ -1220,6 +1283,99 @@ mod tests {
         assert!(error.contains("v3.3.0"));
         assert!(error.contains("6.1"));
         assert!(error.contains("90 days"));
+    }
+
+    #[test]
+    fn tag_runs_are_chosen_by_the_payload_they_carry() {
+        let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // ReSukiSU v4.2.0-rc3: the Lints Check run for the tag has no
+        // artifacts; the build run carries the module and ksuinit.
+        let lint = names(&[]);
+        let build = names(&[
+            "ksud-aarch64-linux-android",
+            "x86_64-android14-6.1-lkm",
+            "ksuinit-x86_64",
+            "aarch64-android14-6.1-lkm",
+            "Manager-release",
+            "ksuinit-aarch64",
+        ]);
+        assert!(!tag_run_supplies(
+            &lint,
+            "6.1",
+            Some("android14"),
+            true,
+            true
+        ));
+        assert!(!tag_run_supplies(
+            &lint,
+            "6.1",
+            Some("android14"),
+            false,
+            true
+        ));
+        assert!(tag_run_supplies(
+            &build,
+            "6.1",
+            Some("android14"),
+            true,
+            true
+        ));
+        // A run with the module but no arm64 ksuinit cannot finish the stage.
+        let module_only = names(&["aarch64-android14-6.1-lkm", "ksuinit-x86_64"]);
+        assert!(!tag_run_supplies(
+            &module_only,
+            "6.1",
+            Some("android14"),
+            true,
+            true
+        ));
+        assert!(tag_run_supplies(
+            &module_only,
+            "6.1",
+            Some("android14"),
+            true,
+            false
+        ));
+        // Only ksuinit is missing when the release ships the module itself.
+        let init_only = names(&["ksuinit-aarch64"]);
+        assert!(tag_run_supplies(
+            &init_only,
+            "6.1",
+            Some("android14"),
+            false,
+            true
+        ));
+        assert!(!tag_run_supplies(
+            &init_only,
+            "6.1",
+            Some("android14"),
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn every_ksu_provider_resolves_tags_from_its_release_workflow_first() {
+        for provider in [
+            RootProvider::KernelSU,
+            RootProvider::KernelSUNext,
+            RootProvider::SukiSU,
+            RootProvider::ReSukiSU,
+        ] {
+            let workflows = crate::root_pipeline::provider_release_workflows(provider);
+            assert_eq!(workflows.first(), Some(&"release.yml"), "{provider:?}");
+            // The nightly workflow stays a fallback, never the only source.
+            let (nightly, _) = crate::root_pipeline::provider_workflow(provider).unwrap();
+            assert!(workflows.contains(&nightly), "{provider:?}");
+        }
+        for provider in [
+            RootProvider::Magisk,
+            RootProvider::APatch,
+            RootProvider::FolkPatch,
+            RootProvider::Skroot,
+        ] {
+            assert!(crate::root_pipeline::provider_release_workflows(provider).is_empty());
+        }
     }
 
     #[test]

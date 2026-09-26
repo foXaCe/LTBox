@@ -316,16 +316,7 @@ impl GitHubClient {
     }
 
     pub fn release_by_tag(&self, tag: &str) -> Result<Vec<(String, String)>> {
-        let encoded: String = tag
-            .bytes()
-            .map(|b| {
-                if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
-                    char::from(b).to_string()
-                } else {
-                    format!("%{b:02X}")
-                }
-            })
-            .collect();
+        let encoded = percent_encode(tag);
         let release: Release = self.get_json(&format!("/releases/tags/{encoded}"))?;
         Ok(release
             .assets
@@ -334,14 +325,17 @@ impl GitHubClient {
             .collect())
     }
 
-    pub fn workflow_run_for_tag(&self, workflow_file: &str, tag: &str) -> Result<u64> {
+    /// Successful runs of `workflow_file` pushed for `tag`, newest first.
+    ///
+    /// Scoped to one workflow: a repository-wide tag query also returns lint
+    /// and other artifact-less runs, and GitHub's order among the runs a
+    /// single tag push starts is not meaningful.
+    pub fn workflow_runs_for_tag(&self, workflow_file: &str, tag: &str) -> Result<Vec<u64>> {
+        let tag = percent_encode(tag);
         let resp: WorkflowRunsResponse = self.get_json(&format!(
             "/actions/workflows/{workflow_file}/runs?per_page=30&status=success&branch={tag}"
         ))?;
-        resp.workflow_runs
-            .first()
-            .map(|r| r.id)
-            .ok_or_else(|| LtboxError::Download(format!("No workflow run for tag {tag}")))
+        Ok(resp.workflow_runs.into_iter().map(|r| r.id).collect())
     }
 
     pub fn workflow_artifacts(&self, run_id: u64) -> Result<Vec<String>> {
@@ -461,6 +455,20 @@ impl GitHubClient {
         let resp: WorkflowRunsResponse = self.get_json(&endpoint)?;
         Ok(resp.workflow_runs.first().map(|r| r.id))
     }
+}
+
+/// Percent-encode a tag for a URL path segment or query value.
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
 }
 
 fn recent_timestamp(value: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
