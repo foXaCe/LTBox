@@ -1433,9 +1433,6 @@ impl EdlSession {
         Ok(())
     }
 
-    /// Sectors spanned by a GPT partition (`end` is the inclusive last LBA).
-    /// Errors on an inverted range so brick-critical erase/flash refuse bad
-    /// geometry rather than silently touching a wrong, tiny span.
     /// Memoised [`Self::physical_lun_sector_count`] for the rawprogram bounds
     /// check.
     ///
@@ -1467,6 +1464,9 @@ impl EdlSession {
         }
     }
 
+    /// Sectors spanned by a GPT partition (`end` is the inclusive last LBA).
+    /// Errors on an inverted range so brick-critical erase/flash refuse bad
+    /// geometry rather than silently touching a wrong, tiny span.
     fn partition_span_sectors(part_name: &str, start: u64, end: u64) -> Result<usize> {
         end.checked_sub(start)
             .and_then(|delta| delta.checked_add(1))
