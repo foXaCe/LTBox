@@ -1720,6 +1720,7 @@ impl EdlSession {
         log: &mut Vec<String>,
     ) -> Result<()> {
         Self::preflight_rawprogram_super_images(program_xmls)?;
+        self.preflight_rawprogram_nodes(program_xmls, !wipe, wipe, log)?;
         register_flash_bytes(self.rawprogram_transfer_bytes(program_xmls, wipe)?);
 
         if wipe {
@@ -1771,6 +1772,7 @@ impl EdlSession {
         log: &mut Vec<String>,
     ) -> Result<()> {
         Self::preflight_rawprogram_super_images(program_xmls)?;
+        self.preflight_rawprogram_nodes(program_xmls, false, false, log)?;
         register_flash_bytes(self.rawprogram_transfer_bytes(program_xmls, true)?);
 
         for xml_path in program_xmls {
@@ -1844,6 +1846,16 @@ impl EdlSession {
         log: &mut Vec<String>,
     ) -> Result<()> {
         for entry in Self::collect_wipe_erase_plan(program_xmls)? {
+            // The pre-erase takes the same untrusted XML geometry as the
+            // `<program>` pass, so it gets the same capacity bound.
+            let ctx = format!("<program label={}> pre-erase", entry.label);
+            self.guard_node_within_lun(
+                &ctx,
+                entry.lun,
+                &entry.start_sector,
+                entry.num_sectors,
+                log,
+            )?;
             ltbox_core::live!(log, "{}", entry.log_line());
             send_firehose_erase(
                 &mut self.dev,
@@ -1930,68 +1942,115 @@ impl EdlSession {
         Ok(())
     }
 
+    /// Resolve and bound every node a rawprogram pass will touch before the
+    /// first write.
+    ///
+    /// Geometry, image offsets and LUN capacity used to be checked node by
+    /// node during the transfer, so one bad node in a later XML aborted after
+    /// earlier LUNs (and, in wipe mode, userdata) had already been written.
+    /// The transfer runs the same planners, so the two cannot drift apart.
+    fn preflight_rawprogram_nodes(
+        &mut self,
+        program_xmls: &[PathBuf],
+        skip_keep_data: bool,
+        pre_erase: bool,
+        log: &mut Vec<String>,
+    ) -> Result<()> {
+        let sector_size = self.dev.fh_config().storage_sector_size as u64;
+        for xml_path in program_xmls {
+            let xml_content = ltbox_core::xml::read(xml_path)?;
+            let doc = ltbox_core::xml::parse(&xml_content).map_err(|e| {
+                EdlError::Session(format!("XML parse error in {}: {e}", xml_path.display()))
+            })?;
+            let xml_dir = xml_path.parent().unwrap_or(Path::new("."));
+            for node in doc.descendants() {
+                match node.tag_name().name().to_lowercase().as_str() {
+                    "program" => {
+                        let label = node.attribute("label").unwrap_or("").trim();
+                        if skip_keep_data && Self::keep_data_skip_labels(label) {
+                            continue;
+                        }
+                        if let ProgramNodePlan::Write(write) =
+                            plan_program_node(&node, xml_dir, sector_size)?
+                        {
+                            let ctx =
+                                format!("{} <program label={}>", xml_path.display(), write.label);
+                            self.guard_node_within_lun(
+                                &ctx,
+                                write.lun,
+                                &write.start_sector,
+                                write.num_sectors,
+                                log,
+                            )?;
+                        }
+                    }
+                    "erase" => {
+                        if let Some(erase) = plan_erase_node(&node)? {
+                            let ctx = format!("{} <erase>", xml_path.display());
+                            self.guard_node_within_lun(
+                                &ctx,
+                                erase.lun,
+                                &erase.start_sector,
+                                erase.num_sectors,
+                                log,
+                            )?;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if pre_erase {
+            for entry in Self::collect_wipe_erase_plan(program_xmls)? {
+                let ctx = format!("<program label={}> pre-erase", entry.label);
+                self.guard_node_within_lun(
+                    &ctx,
+                    entry.lun,
+                    &entry.start_sector,
+                    entry.num_sectors,
+                    log,
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     fn flash_program_node(
         &mut self,
         node: &roxmltree::Node<'_, '_>,
         xml_dir: &Path,
         log: &mut Vec<String>,
     ) -> Result<()> {
-        let label = node.attribute("label").unwrap_or("").trim().to_string();
-        let filename = node.attribute("filename").unwrap_or("").trim().to_string();
+        let sector_size = self.dev.fh_config().storage_sector_size as u64;
+        let write = match plan_program_node(node, xml_dir, sector_size)? {
+            ProgramNodePlan::Skip => return Ok(()),
+            ProgramNodePlan::MissingImage { label, image_path } => {
+                ltbox_core::live!(
+                    log,
+                    "[EDL] {}",
+                    ltbox_core::tr_args!(
+                        "log_edl_skip_image_missing",
+                        label = label,
+                        path = image_path.display()
+                    )
+                );
+                return Ok(());
+            }
+            ProgramNodePlan::Write(write) => write,
+        };
+        let ProgramWrite {
+            label,
+            image_path,
+            lun,
+            slot,
+            start_sector,
+            num_sectors,
+            byte_offset,
+        } = write;
         let ctx = format!("<program label={label}>");
-        let num_sectors: usize = parse_xml_attr(node, "num_partition_sectors", 0usize, &ctx)?;
-
-        // Skip GPT placeholders / empty entries (qdl CLI `parse_program_cmd`).
-        if filename.is_empty() || num_sectors == 0 {
-            return Ok(());
-        }
-
-        require_destructive_coords(node, &ctx)?;
-        let lun: u8 = parse_xml_attr(node, "physical_partition_number", 0u8, &ctx)?;
-        let slot: u8 = parse_xml_attr(node, "slot", 0u8, &ctx)?;
-        let start_sector = node.attribute("start_sector").unwrap_or("0");
-        let file_sector_offset: u64 = parse_xml_attr(node, "file_sector_offset", 0u64, &ctx)?;
-        let sector_size: u64 = self.dev.fh_config().storage_sector_size as u64;
-
-        let image_path = ltbox_core::safe_path::safe_join(xml_dir, &filename)
-            .map_err(|e| EdlError::Session(e.to_string()))?;
-        if !image_path.exists() {
-            ltbox_core::live!(
-                log,
-                "[EDL] {}",
-                ltbox_core::tr_args!(
-                    "log_edl_skip_image_missing",
-                    label = label,
-                    path = image_path.display()
-                )
-            );
-            return Ok(());
-        }
 
         let mut file = std::fs::File::open(&image_path)?;
-        if file_sector_offset > 0 {
-            // `file_sector_offset * sector_size` can overflow u64 if the
-            // rawprogram XML carries a hostile or corrupted value (untrusted
-            // input — the same XML that names the partition). On overflow the
-            // wrap-around lands at a tiny offset and we'd flash bytes from the
-            // wrong region of `image_path` to the device. Reject overflow and
-            // require the resulting byte offset to fit inside the image file
-            // so we never seek past EOF and feed Firehose stale read data.
-            let byte_offset = sector_size.checked_mul(file_sector_offset).ok_or_else(|| {
-                EdlError::Session(format!(
-                    "{ctx}: file_sector_offset {file_sector_offset} \
-                         × sector_size {sector_size} overflows u64"
-                ))
-            })?;
-            let file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
-            if byte_offset >= file_len {
-                return Err(EdlError::Session(format!(
-                    "{ctx}: file_sector_offset {file_sector_offset} \
-                     (byte offset {byte_offset}) >= image length {file_len} \
-                     for {}",
-                    image_path.display(),
-                )));
-            }
+        if byte_offset > 0 {
             file.seek(SeekFrom::Start(byte_offset))?;
         }
 
@@ -2011,7 +2070,7 @@ impl EdlSession {
             )
         );
 
-        self.guard_node_within_lun(&ctx, lun, start_sector, num_sectors, log)?;
+        self.guard_node_within_lun(&ctx, lun, &start_sector, num_sectors, log)?;
 
         // Publish only when the integer percentage changes so the process-wide
         // slot is not locked/allocated on every Firehose chunk.
@@ -2026,7 +2085,7 @@ impl EdlSession {
             num_sectors,
             slot,
             lun,
-            start_sector,
+            &start_sector,
             |completed, total| update_flash_progress(&mut last_percent, &label, completed, total),
         )
         .map_err(|e| EdlError::Session(format!("Program {label} failed: {e}")))?;
@@ -2038,24 +2097,22 @@ impl EdlSession {
         node: &roxmltree::Node<'_, '_>,
         log: &mut Vec<String>,
     ) -> Result<()> {
-        let ctx = "<erase>";
-        let num_sectors: usize = parse_xml_attr(node, "num_partition_sectors", 0usize, ctx)?;
-        if num_sectors == 0 {
+        let Some(EraseNodePlan {
+            lun,
+            start_sector,
+            num_sectors,
+            efisp,
+        }) = plan_erase_node(node)?
+        else {
             return Ok(());
-        }
-        require_destructive_coords(node, ctx)?;
-        let lun: u8 = parse_xml_attr(node, "physical_partition_number", 0u8, ctx)?;
-        let start_sector = node.attribute("start_sector").unwrap_or("0");
+        };
 
-        self.guard_node_within_lun(ctx, lun, start_sector, num_sectors, log)?;
+        self.guard_node_within_lun("<erase>", lun, &start_sector, num_sectors, log)?;
 
         // Named EFISP erases use the same zero-program policy as the
         // partition wizard and the conditional full-firmware cleanup.
-        if node
-            .attribute("label")
-            .is_some_and(|label| label.trim() == "efisp")
-        {
-            return self.erase_partition_at("efisp", lun, start_sector, num_sectors, log);
+        if efisp {
+            return self.erase_partition_at("efisp", lun, &start_sector, num_sectors, log);
         }
 
         ltbox_core::live!(
@@ -2068,7 +2125,7 @@ impl EdlSession {
                 sectors = num_sectors
             )
         );
-        send_firehose_erase(&mut self.dev, num_sectors, lun, start_sector)
+        send_firehose_erase(&mut self.dev, num_sectors, lun, &start_sector)
             .map_err(|e| EdlError::Session(format!("Erase failed: {e}")))?;
         Ok(())
     }
@@ -2122,6 +2179,121 @@ impl EdlSession {
         }
         Ok(())
     }
+}
+
+/// A rawprogram `<program>` node resolved against its image file, with no
+/// device I/O. Shared by the preflight and the transfer.
+#[derive(Debug, PartialEq, Eq)]
+enum ProgramNodePlan {
+    /// GPT placeholder or empty entry (qdl CLI `parse_program_cmd`).
+    Skip,
+    /// The package does not ship the referenced image.
+    MissingImage {
+        label: String,
+        image_path: PathBuf,
+    },
+    Write(ProgramWrite),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ProgramWrite {
+    label: String,
+    image_path: PathBuf,
+    lun: u8,
+    slot: u8,
+    start_sector: String,
+    num_sectors: usize,
+    /// Byte offset into `image_path`, already bounded by the file length.
+    byte_offset: u64,
+}
+
+fn plan_program_node(
+    node: &roxmltree::Node<'_, '_>,
+    xml_dir: &Path,
+    sector_size: u64,
+) -> Result<ProgramNodePlan> {
+    let label = node.attribute("label").unwrap_or("").trim().to_string();
+    let filename = node.attribute("filename").unwrap_or("").trim();
+    let ctx = format!("<program label={label}>");
+    let num_sectors: usize = parse_xml_attr(node, "num_partition_sectors", 0usize, &ctx)?;
+    if filename.is_empty() || num_sectors == 0 {
+        return Ok(ProgramNodePlan::Skip);
+    }
+
+    require_destructive_coords(node, &ctx)?;
+    let lun: u8 = parse_xml_attr(node, "physical_partition_number", 0u8, &ctx)?;
+    let slot: u8 = parse_xml_attr(node, "slot", 0u8, &ctx)?;
+    let start_sector = node.attribute("start_sector").unwrap_or("0").to_string();
+    let file_sector_offset: u64 = parse_xml_attr(node, "file_sector_offset", 0u64, &ctx)?;
+
+    let image_path = ltbox_core::safe_path::safe_join(xml_dir, filename)
+        .map_err(|e| EdlError::Session(e.to_string()))?;
+    if !image_path.exists() {
+        return Ok(ProgramNodePlan::MissingImage { label, image_path });
+    }
+
+    let mut byte_offset = 0;
+    if file_sector_offset > 0 {
+        // `file_sector_offset * sector_size` can overflow u64 if the
+        // rawprogram XML carries a hostile or corrupted value (untrusted
+        // input — the same XML that names the partition). On overflow the
+        // wrap-around lands at a tiny offset and we'd flash bytes from the
+        // wrong region of `image_path` to the device. Reject overflow and
+        // require the resulting byte offset to fit inside the image file
+        // so we never seek past EOF and feed Firehose stale read data.
+        byte_offset = sector_size.checked_mul(file_sector_offset).ok_or_else(|| {
+            EdlError::Session(format!(
+                "{ctx}: file_sector_offset {file_sector_offset} \
+                     × sector_size {sector_size} overflows u64"
+            ))
+        })?;
+        let file_len = std::fs::metadata(&image_path)?.len();
+        if byte_offset >= file_len {
+            return Err(EdlError::Session(format!(
+                "{ctx}: file_sector_offset {file_sector_offset} \
+                 (byte offset {byte_offset}) >= image length {file_len} \
+                 for {}",
+                image_path.display(),
+            )));
+        }
+    }
+
+    Ok(ProgramNodePlan::Write(ProgramWrite {
+        label,
+        image_path,
+        lun,
+        slot,
+        start_sector,
+        num_sectors,
+        byte_offset,
+    }))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct EraseNodePlan {
+    lun: u8,
+    start_sector: String,
+    num_sectors: usize,
+    efisp: bool,
+}
+
+/// A rawprogram `<erase>` node's coordinates, or `None` for an empty erase.
+fn plan_erase_node(node: &roxmltree::Node<'_, '_>) -> Result<Option<EraseNodePlan>> {
+    let ctx = "<erase>";
+    let num_sectors: usize = parse_xml_attr(node, "num_partition_sectors", 0usize, ctx)?;
+    if num_sectors == 0 {
+        return Ok(None);
+    }
+    require_destructive_coords(node, ctx)?;
+    let lun: u8 = parse_xml_attr(node, "physical_partition_number", 0u8, ctx)?;
+    Ok(Some(EraseNodePlan {
+        lun,
+        start_sector: node.attribute("start_sector").unwrap_or("0").to_string(),
+        num_sectors,
+        efisp: node
+            .attribute("label")
+            .is_some_and(|label| label.trim() == "efisp"),
+    }))
 }
 
 /// Parse an XML attribute, distinguishing three cases:
@@ -2518,6 +2690,106 @@ mod tests {
         // Missing physical_partition_number → rejected (would default to LUN 0).
         let no_lun = ltbox_core::xml::parse(r#"<data><erase start_sector="34"/></data>"#).unwrap();
         assert!(require_destructive_coords(&first_node(&no_lun, "erase"), "<erase>").is_err());
+    }
+
+    #[test]
+    fn program_plan_resolves_writes_placeholders_and_missing_images() {
+        let fw = TempFirmwareDir::new();
+        fw.write_bytes("boot.img", &[0u8; 4096]);
+        let doc = ltbox_core::xml::parse(
+            r#"<data>
+                <program label="boot_a" filename="boot.img" num_partition_sectors="8"
+                         physical_partition_number="4" start_sector="100" slot="1"
+                         file_sector_offset="2"/>
+                <program label="PrimaryGPT" filename="" num_partition_sectors="6"
+                         physical_partition_number="0" start_sector="0"/>
+                <program label="dtbo_a" filename="dtbo.img" num_partition_sectors="8"
+                         physical_partition_number="4" start_sector="200"/>
+            </data>"#,
+        )
+        .unwrap();
+        let nodes: Vec<_> = doc
+            .descendants()
+            .filter(|n| n.has_tag_name("program"))
+            .collect();
+
+        assert_eq!(
+            plan_program_node(&nodes[0], fw.path(), 512).unwrap(),
+            ProgramNodePlan::Write(ProgramWrite {
+                label: "boot_a".into(),
+                image_path: fw.path().join("boot.img"),
+                lun: 4,
+                slot: 1,
+                start_sector: "100".into(),
+                num_sectors: 8,
+                byte_offset: 1024,
+            })
+        );
+        assert_eq!(
+            plan_program_node(&nodes[1], fw.path(), 512).unwrap(),
+            ProgramNodePlan::Skip
+        );
+        assert_eq!(
+            plan_program_node(&nodes[2], fw.path(), 512).unwrap(),
+            ProgramNodePlan::MissingImage {
+                label: "dtbo_a".into(),
+                image_path: fw.path().join("dtbo.img"),
+            }
+        );
+    }
+
+    #[test]
+    fn program_plan_rejects_bad_geometry_before_any_transfer() {
+        let fw = TempFirmwareDir::new();
+        fw.write_bytes("boot.img", &[0u8; 1024]);
+        for node_xml in [
+            // Missing start_sector would steer the write at the primary GPT.
+            r#"<program label="boot_a" filename="boot.img" num_partition_sectors="2"
+                        physical_partition_number="4"/>"#,
+            // Offset at or past the end of the image.
+            r#"<program label="boot_a" filename="boot.img" num_partition_sectors="2"
+                        physical_partition_number="4" start_sector="0"
+                        file_sector_offset="2"/>"#,
+            // Offset multiply overflows u64.
+            r#"<program label="boot_a" filename="boot.img" num_partition_sectors="2"
+                        physical_partition_number="4" start_sector="0"
+                        file_sector_offset="18446744073709551615"/>"#,
+        ] {
+            let xml = format!("<data>{node_xml}</data>");
+            let doc = ltbox_core::xml::parse(&xml).unwrap();
+            assert!(
+                plan_program_node(&first_node(&doc, "program"), fw.path(), 512).is_err(),
+                "{node_xml}"
+            );
+        }
+    }
+
+    #[test]
+    fn erase_plan_keeps_coordinates_and_flags_efisp() {
+        let doc = ltbox_core::xml::parse(
+            r#"<data>
+                <erase label="efisp" num_partition_sectors="16"
+                       physical_partition_number="4" start_sector="NUM_DISK_SECTORS-16."/>
+                <erase num_partition_sectors="0" physical_partition_number="0" start_sector="0"/>
+                <erase num_partition_sectors="8" start_sector="0"/>
+            </data>"#,
+        )
+        .unwrap();
+        let nodes: Vec<_> = doc
+            .descendants()
+            .filter(|n| n.has_tag_name("erase"))
+            .collect();
+        assert_eq!(
+            plan_erase_node(&nodes[0]).unwrap(),
+            Some(EraseNodePlan {
+                lun: 4,
+                start_sector: "NUM_DISK_SECTORS-16.".into(),
+                num_sectors: 16,
+                efisp: true,
+            })
+        );
+        assert_eq!(plan_erase_node(&nodes[1]).unwrap(), None);
+        assert!(plan_erase_node(&nodes[2]).is_err());
     }
 
     #[test]
