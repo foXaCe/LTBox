@@ -2315,3 +2315,49 @@ fn country_patch_progress_surfaces_partition_failures() {
         .expect_err("recorded persist failure must fail workflow");
     assert!(err.contains("persist: no known country code"));
 }
+
+#[test]
+fn default_log_filter_hides_iced_noise_but_keeps_actionable_warnings() {
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct Capture(Arc<Mutex<Vec<u8>>>);
+    impl Write for Capture {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let capture = Capture(Arc::default());
+    let writer = capture.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::try_new(DEFAULT_LOG_FILTER).unwrap())
+        .with_ansi(false)
+        .without_time()
+        .with_writer(move || writer.clone())
+        .finish();
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!(target: "iced_winit", "hidden-window-dump");
+        tracing::info!(target: "iced_wgpu::window::compositor", "hidden-compositor-dump");
+        tracing::warn!(target: "iced_futures::subscription::tracker", "hidden-full-channel");
+        tracing::warn!(target: "iced_futures::runtime", "retained-stream-failure");
+        tracing::warn!(target: "iced_winit", "retained-window-warning");
+        tracing::info!(target: "ltbox_patch", "retained-operation-info");
+        tracing::error!(target: "iced_futures::subscription::tracker", "retained-tracker-error");
+    });
+    let bytes = capture.0.lock().unwrap();
+    let log = std::str::from_utf8(&bytes).unwrap();
+    assert!(!log.contains("hidden-"), "{log}");
+    for message in [
+        "retained-stream-failure",
+        "retained-window-warning",
+        "retained-operation-info",
+        "retained-tracker-error",
+    ] {
+        assert!(log.contains(message), "missing {message}: {log}");
+    }
+}
