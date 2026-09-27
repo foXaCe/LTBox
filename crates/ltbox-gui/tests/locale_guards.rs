@@ -63,7 +63,7 @@ fn template_parameters(template: &str) -> BTreeSet<String> {
 #[test]
 fn log_template_parameters_match_in_every_locale() {
     let english = load_locale("en");
-    for locale in ["ko", "ja", "zh", "ru"] {
+    for locale in ["ko", "ja", "zh", "ru", "fr"] {
         let table = load_locale(locale);
         for (key, template) in &english {
             if key.starts_with("live_") || key.starts_with("log_") {
@@ -492,6 +492,7 @@ fn locale_files_have_identical_key_sets() {
         ("zh", load_locale("zh")),
         ("ru", load_locale("ru")),
         ("ja", load_locale("ja")),
+        ("fr", load_locale("fr")),
     ];
     let en_keys = en.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let mut differences = Vec::new();
@@ -516,7 +517,7 @@ fn locale_files_have_identical_key_sets() {
 
     assert!(
         differences.is_empty(),
-        "locale key sets differ; add or remove the named keys so all five lang/*.json files match:\n- {}",
+        "locale key sets differ; add or remove the named keys so all six lang/*.json files match:\n- {}",
         differences.join("\n- ")
     );
 }
@@ -534,7 +535,7 @@ fn english_locale_keys_match_rust_sources() {
 
     if !orphans.is_empty() {
         failures.push(format!(
-            "crates/ltbox-gui/lang/en.json has keys with no string-literal reference in Rust under crates/**/*.rs: {}\nRemove each orphan from all five lang/*.json files, or restore its Rust call site or key table.",
+            "crates/ltbox-gui/lang/en.json has keys with no string-literal reference in Rust under crates/**/*.rs: {}\nRemove each orphan from all six lang/*.json files, or restore its Rust call site or key table.",
             orphans.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
@@ -553,7 +554,7 @@ fn english_locale_keys_match_rust_sources() {
 
     if !missing.is_empty() {
         failures.push(format!(
-            "production t(...), tr(...), or tr_args!(...) calls reference keys absent from crates/ltbox-gui/lang/en.json:\n- {}\nAdd each key to all five lang/*.json files, or correct the named call site.",
+            "production t(...), tr(...), or tr_args!(...) calls reference keys absent from crates/ltbox-gui/lang/en.json:\n- {}\nAdd each key to all six lang/*.json files, or correct the named call site.",
             missing.join("\n- ")
         ));
     }
@@ -631,6 +632,7 @@ fn every_localized_character_is_in_the_bundled_subset_for_its_locale() {
         ("ko", "KR"),
         ("ja", "JP"),
         ("zh", "SC"),
+        ("fr", "KR"),
     ];
 
     let lang_dir = manifest_dir().join("lang");
@@ -1023,7 +1025,7 @@ fn overflow_message(
 #[test]
 fn bundled_locale_copy_fits_constrained_layout_slots() {
     load_bundled_locale_fonts();
-    let locales = ["en", "ko", "zh", "ru", "ja"];
+    let locales = ["en", "ko", "zh", "ru", "ja", "fr"];
     let mut failures = Vec::new();
 
     for slot in CONSTRAINED_SLOTS {
@@ -1327,7 +1329,7 @@ fn compact_flash_and_root_step_labels_fit_default_content_width() {
         - COMPACT_ITEM_GAPS;
     for (flow, keys) in [("flash", FLASH_STEP_KEYS), ("root", ROOT_STEP_KEYS)] {
         let total = keys.len();
-        for locale in ["en", "ko", "zh", "ru", "ja"] {
+        for locale in ["en", "ko", "zh", "ru", "ja", "fr"] {
             let table = load_locale(locale);
             let mut widest = ("", 0.0_f32, String::new());
             for (index, key) in keys.iter().enumerate() {
@@ -1360,6 +1362,7 @@ fn timeout_and_capacity_units_follow_the_selected_locale() {
         ("ja", "30秒", "16 GB"),
         ("zh", "30 秒", "16 GB"),
         ("ru", "30 с", "16 ГБ"),
+        ("fr", "30\u{a0}s", "16\u{a0}Go"),
     ] {
         let table = load_locale(locale);
         let timeout = table["err_active_slot_detect_failed"]
