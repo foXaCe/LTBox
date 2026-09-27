@@ -797,7 +797,7 @@ mod font_family_tests {
         }
         assert!(!db.is_empty(), "the bundle must carry at least one face");
 
-        for code in ["en", "ko", "zh", "ru", "ja"] {
+        for code in ["en", "ko", "zh", "ru", "ja", "fr"] {
             let family = super::font_family_for_language(code);
             for (requested, requested_db_weight) in [
                 (Weight::Normal, fontdb::Weight::NORMAL),

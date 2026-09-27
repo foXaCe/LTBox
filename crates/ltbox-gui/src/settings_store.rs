@@ -217,7 +217,7 @@ fn default_language() -> String {
 
 /// Map an OS locale tag (e.g. `ko-KR`, `zh-Hant-TW`, `en-US`) to a UI
 /// language code LTBox ships. Every Chinese variant maps to `zh`; Korean,
-/// Russian, and Japanese map to their matching UI language. Anything else
+/// Russian, Japanese, and French map to their matching UI language. Anything else
 /// falls back to English.
 fn ui_lang_for_locale(locale: &str) -> &'static str {
     // Compare only the BCP-47 / POSIX primary language subtag (`ko-KR`,
@@ -233,6 +233,7 @@ fn ui_lang_for_locale(locale: &str) -> &'static str {
         "zh" => "zh",
         "ru" => "ru",
         "ja" => "ja",
+        "fr" => "fr",
         _ => "en",
     }
 }
@@ -505,9 +506,13 @@ mod tests {
         for l in ["ja-JP", "ja", "ja_JP.UTF-8", "JA"] {
             assert_eq!(ui_lang_for_locale(l), "ja", "{l}");
         }
+        // French, including regional variants.
+        for l in ["fr-FR", "fr-CA", "fr-BE", "fr", "fr_FR.UTF-8", "FR"] {
+            assert_eq!(ui_lang_for_locale(l), "fr", "{l}");
+        }
         // Everything else → English — including neighbours that merely share a
         // prefix (Konkani `kok`, Zhuang `zha`).
-        for l in ["en-US", "de", "kok-IN", "zha-CN", ""] {
+        for l in ["en-US", "de", "fur-IT", "kok-IN", "zha-CN", ""] {
             assert_eq!(ui_lang_for_locale(l), "en", "{l}");
         }
     }

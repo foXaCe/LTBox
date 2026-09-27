@@ -9,6 +9,7 @@ pub(crate) enum Language {
     Zh,
     Ru,
     Ja,
+    Fr,
 }
 impl Language {
     /// Name in its own script — locale-neutral.
@@ -19,6 +20,7 @@ impl Language {
             Self::Zh => "中文",
             Self::Ru => "Русский",
             Self::Ja => "日本語",
+            Self::Fr => "Français",
         }
     }
     pub(crate) fn code(&self) -> &'static str {
@@ -28,6 +30,7 @@ impl Language {
             Self::Zh => "zh",
             Self::Ru => "ru",
             Self::Ja => "ja",
+            Self::Fr => "fr",
         }
     }
     pub(crate) fn from_code(c: &str) -> Option<Self> {
@@ -37,6 +40,7 @@ impl Language {
             "zh" => Some(Self::Zh),
             "ru" => Some(Self::Ru),
             "ja" => Some(Self::Ja),
+            "fr" => Some(Self::Fr),
             _ => None,
         }
     }
@@ -47,6 +51,7 @@ pub(crate) const LANGUAGES: &[Language] = &[
     Language::Zh,
     Language::Ru,
     Language::Ja,
+    Language::Fr,
 ];
 
 // =========================================================================
@@ -58,6 +63,7 @@ const KO_JSON: &str = include_str!("../lang/ko.json");
 const ZH_JSON: &str = include_str!("../lang/zh.json");
 const RU_JSON: &str = include_str!("../lang/ru.json");
 const JA_JSON: &str = include_str!("../lang/ja.json");
+const FR_JSON: &str = include_str!("../lang/fr.json");
 
 // Parsed once on first access; `Translations::load` then swaps two
 // `&'static` refs — no reparse on language switch.
@@ -71,6 +77,8 @@ static RU_TABLE: std::sync::LazyLock<HashMap<String, String>> =
     std::sync::LazyLock::new(|| serde_json::from_str(RU_JSON).expect("ru.json must parse"));
 static JA_TABLE: std::sync::LazyLock<HashMap<String, String>> =
     std::sync::LazyLock::new(|| serde_json::from_str(JA_JSON).expect("ja.json must parse"));
+static FR_TABLE: std::sync::LazyLock<HashMap<String, String>> =
+    std::sync::LazyLock::new(|| serde_json::from_str(FR_JSON).expect("fr.json must parse"));
 
 /// Active translation table + English fallback. Two `&'static` refs
 /// into the process-wide `LazyLock` tables, so reload is free.
@@ -89,6 +97,7 @@ impl Translations {
             Language::Zh => &ZH_TABLE,
             Language::Ru => &RU_TABLE,
             Language::Ja => &JA_TABLE,
+            Language::Fr => &FR_TABLE,
         };
         Self { primary, fallback }
     }

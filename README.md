@@ -46,7 +46,7 @@ scoop install ltbox
 
 After USB setup, connect your tablet, choose a task from the sidebar, and follow the wizard. Keep the device connected until the operation finishes.
 
-The interface supports **English, Korean, Simplified Chinese, Russian, and Japanese**, with system, light, and dark themes.
+The interface supports **English, Korean, Simplified Chinese, Russian, Japanese, and French**, with system, light, and dark themes.
 
 ## What you can do
 
