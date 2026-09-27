@@ -781,6 +781,11 @@ jobs:
       - name: cargo test --workspace
         run: python3 .github/scripts/cache_metrics.py run workspace-tests cargo test --workspace --locked
 
+      # qdl is excluded from workspace membership; select it explicitly while
+      # retaining the product lockfile, features and dependency build cache.
+      - name: Test vendored qdl protocol regressions
+        run: python3 .github/scripts/cache_metrics.py run qdl-tests cargo test -p qdl --lib --locked
+
       - name: Record Linux cache metrics
         if: always()
         continue-on-error: true

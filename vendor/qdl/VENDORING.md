@@ -95,7 +95,8 @@ revision. Check the callback and final-response handling, USB/serial selection,
 and programmer-loading support against LTBox callers; this list alone is not a
 complete inventory of every local change.
 
-Run `cargo test -p ltbox-device --locked` from the LTBox workspace, including
+Run `cargo test -p qdl --lib --locked` for the vendored unit tests (excluded
+from `--workspace`), then `cargo test -p ltbox-device --locked` from the LTBox workspace, including
 `firehose_faults`, `firehose_read`, and `edl::partition_flash` tests. Confirm
 that preflight rejects later invalid images before any write/erase, a missing
 or delayed final ACK prevents the next write, and an error stops the batch.
