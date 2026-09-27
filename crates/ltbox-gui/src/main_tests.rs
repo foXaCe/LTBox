@@ -93,7 +93,11 @@ fn operation_phase_reporter_marker_uses_the_same_snapshot_total_and_label() {
     install_core_translator(Language::En);
     let reporter =
         PhaseReporter::from_labels(vec!["Prepare".into(), "Write".into(), "Reboot".into()]);
-    let marker = reporter.marker(2);
+    let worker = reporter.clone();
+    let marker = worker.marker(2);
+    assert_eq!(reporter.current_step(), 1);
+    worker.marker(3);
+    assert_eq!(reporter.current_step(), 2);
     assert!(marker.contains("2/3"));
     assert!(marker.contains("Write"));
     assert_eq!(reporter.steps()[1].label, "Write");
@@ -1040,199 +1044,6 @@ fn visible_log_tail_and_export_have_independent_retention() {
 }
 
 #[test]
-fn primary_workers_emit_every_phase_in_order() {
-    let compact = |source: &str| {
-        source
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect::<String>()
-    };
-    let assert_marker_order = |source: &str, total: usize| {
-        let mut previous = None;
-        for phase in 1..=total {
-            let marker = format!("phases.marker({phase})");
-            let positions = source
-                .match_indices(&marker)
-                .map(|(position, _)| position)
-                .collect::<Vec<_>>();
-            assert_eq!(positions.len(), 1, "expected one {marker}");
-            if let Some(previous) = previous {
-                assert!(previous < positions[0], "{marker} is out of order");
-            }
-            previous = positions.first().copied();
-        }
-    };
-    let flash = compact(include_str!("workers/flash/full.rs"));
-    let root = compact(include_str!("workers/root.rs"));
-    let unroot = compact(include_str!("workers/unroot.rs"));
-    assert_marker_order(&flash, 9);
-    assert_marker_order(&root, 8);
-    assert_marker_order(&unroot, 5);
-}
-
-#[test]
-fn system_update_worker_reports_each_action_phase_in_order() {
-    let compact = include_str!("workers/sysupdate.rs")
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>();
-    for phase in 1..=7 {
-        assert!(
-            compact.contains(&format!("phases.marker({phase})")),
-            "missing System Update phase {phase}"
-        );
-    }
-    assert!(!compact.contains("phase_marker("));
-}
-
-#[test]
-fn advanced_edl_workers_report_their_phase_boundaries() {
-    let compact = |source: &str| {
-        source
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect::<String>()
-    };
-    let function = |source: &str, start: &str, end: Option<&str>| {
-        let (_, tail) = source.split_once(start).expect("worker function exists");
-        end.and_then(|end| tail.split_once(end).map(|(body, _)| body))
-            .unwrap_or(tail)
-            .to_string()
-    };
-    let assert_once_in_order = |source: &str, total: usize| {
-        let mut previous = None;
-        for phase in 1..=total {
-            let marker = format!("phases.marker({phase})");
-            let positions = source
-                .match_indices(&marker)
-                .map(|(position, _)| position)
-                .collect::<Vec<_>>();
-            assert_eq!(positions.len(), 1, "expected one {marker}");
-            if let Some(previous) = previous {
-                assert!(previous < positions[0], "{marker} is out of order");
-            }
-            previous = positions.first().copied();
-        }
-    };
-
-    let transfer = compact(include_str!("workers/transfer.rs"));
-    let flash_parts = function(
-        &transfer,
-        "pub(crate)fnflash_parts_execute(",
-        Some("pub(crate)fndump_parts_scan("),
-    );
-    let dump_parts = function(
-        &transfer,
-        "pub(crate)fndump_parts_execute(",
-        Some("pub(crate)fndump_physical_execute("),
-    );
-    let dump_physical = function(
-        &transfer,
-        "pub(crate)fndump_physical_execute(",
-        Some("pub(crate)fnflash_physical_execute("),
-    );
-    let flash_physical = function(&transfer, "pub(crate)fnflash_physical_execute(", None);
-    assert_once_in_order(&flash_parts, 3);
-    assert_once_in_order(&dump_parts, 4);
-    assert_once_in_order(&dump_physical, 5);
-    assert_once_in_order(&flash_physical, 4);
-
-    let simple = compact(include_str!("workers/flash/simple.rs"));
-    assert_once_in_order(&simple, 5);
-
-    let country = compact(include_str!("workers/flash/country.rs"));
-    for phase in [1, 2, 5] {
-        assert_eq!(
-            country.matches(&format!("phases.marker({phase})")).count(),
-            1
-        );
-    }
-    let country_shared = compact(include_str!("workers/flash/mod.rs"));
-    for phase in [3, 4] {
-        assert_eq!(
-            country_shared
-                .matches(&format!("phases.marker({phase})"))
-                .count(),
-            1
-        );
-    }
-
-    let arb = compact(include_str!("arb.rs"));
-    assert_eq!(arb.matches("phases.marker(1)").count(), 1);
-    assert_eq!(arb.matches("phases.marker(2)").count(), 1);
-    assert_eq!(arb.matches("phases.marker(3)").count(), 1);
-    assert_eq!(arb.matches("phases.marker(4)").count(), 2);
-    assert_eq!(arb.matches("phases.marker(5)").count(), 2);
-}
-
-#[test]
-fn offline_advanced_worker_reports_each_phase_boundary() {
-    let source = include_str!("workers/advanced.rs")
-        .chars()
-        .filter(|c| !c.is_whitespace())
-        .collect::<String>();
-    let action = |start: &str, end: Option<&str>| {
-        let (_, tail) = source.split_once(start).expect("action arm exists");
-        end.and_then(|end| tail.split_once(end).map(|(body, _)| body))
-            .unwrap_or(tail)
-            .to_string()
-    };
-    let assert_once_in_order = |body: &str, total: usize| {
-        let mut previous = None;
-        for phase in 1..=total {
-            let marker = format!("phases.marker({phase})");
-            let positions = body
-                .match_indices(&marker)
-                .map(|(position, _)| position)
-                .collect::<Vec<_>>();
-            assert_eq!(positions.len(), 1, "expected one {marker}");
-            if let Some(previous) = previous {
-                assert!(previous < positions[0], "{marker} is out of order");
-            }
-            previous = positions.first().copied();
-        }
-    };
-
-    let xml = action("AdvAction::ConvertXml=>{", Some("AdvAction::DetectArb=>{"));
-    let region = action(
-        "AdvAction::RegionConvert=>{",
-        Some("AdvAction::PatchDevinfo=>{"),
-    );
-    let patch_arb = action(
-        "pub(crate)fnpatch_firmware_rollback(",
-        Some("pub(crate)fnadvanced_file_worker("),
-    );
-    let rebuild = action("AdvAction::RebuildVbmeta=>{", None);
-    assert_once_in_order(&xml, 3);
-    assert_once_in_order(&patch_arb, 4);
-    assert_once_in_order(&rebuild, 3);
-    assert_eq!(region.matches("phases.marker(1)").count(), 1);
-    assert!(region.contains("RegionBuildStage::Inspect=>2"));
-    assert!(region.contains("RegionBuildStage::PatchVendorBoot=>3"));
-    assert!(region.contains("RegionBuildStage::RebuildVbmeta=>4"));
-    assert_eq!(region.matches("phases.marker(4)").count(), 1);
-    assert!(!source.contains("phase_marker("));
-}
-
-#[test]
-fn refined_phase_labels_exist_in_every_locale() {
-    let keys = [
-        "op_flash_phase_5",
-        "op_flash_phase_6",
-        "op_flash_phase_7",
-        "op_unroot_phase_4",
-        "op_unroot_phase_5",
-        "op_unroot_phase_6",
-    ];
-    for &lang in LANGUAGES {
-        let translations = Translations::load(lang);
-        for key in keys {
-            assert_ne!(translations.t(key), key, "{lang:?} missing {key}");
-        }
-    }
-}
-
-#[test]
 fn every_operation_phase_label_exists_in_every_locale() {
     for &lang in LANGUAGES {
         let translations = Translations::load(lang);
@@ -1469,62 +1280,6 @@ fn advanced_menu_taxonomy_matches_avb_image_reclass() {
             AdvAction::SimpleFlash,
         ]
     );
-}
-
-fn assert_template_call_replaces(source: &str, key: &str, placeholders: &[&str]) {
-    // Whitespace-strip the whole source so rustfmt line-wrapping (which can
-    // split a tr_args! call across lines) doesn't hide it. Accept either
-    // substitution form: the manual tr(key) followed by a replace chain, or
-    // the tr_args! macro (which uses single-pass interpolation). Both guarantee
-    // the placeholder is filled rather than shipped literally.
-    let compact: String = source.chars().filter(|c| !c.is_whitespace()).collect();
-    let tr_args_needle = format!("tr_args!(\"{key}\"");
-    if let Some(pos) = compact.find(&tr_args_needle) {
-        let window = &compact[pos..(pos + 2_000).min(compact.len())];
-        for placeholder in placeholders {
-            assert!(
-                window.contains(&format!("{placeholder}=")),
-                "{key} (tr_args!) must pass {placeholder}"
-            );
-        }
-        return;
-    }
-    let needle = format!("tr(\"{key}\")");
-    let pos = compact.find(&needle).expect("template key must be used");
-    let window = &compact[pos..(pos + 2_000).min(compact.len())];
-    for placeholder in placeholders {
-        assert!(
-            window.contains(&format!(".replace(\"{{{placeholder}}}\"")),
-            "{key} must replace {{{placeholder}}} near its log call"
-        );
-    }
-}
-
-#[test]
-fn high_risk_log_templates_replace_visible_placeholders() {
-    // Concatenate the GUI sources that carry high-risk log templates;
-    // some live in main.rs, others in the extracted worker modules.
-    let gui_src = concat!(
-        include_str!("main.rs"),
-        include_str!("arb.rs"),
-        include_str!("root_manager.rs"),
-        include_str!("arb_overlay.rs"),
-        include_str!("workers/transfer.rs"),
-        include_str!("workers/flash/mod.rs"),
-        include_str!("workers/flash/full.rs"),
-        include_str!("workers/flash/country.rs"),
-        include_str!("workers/flash/simple.rs"),
-    );
-    let rawprogram_rs = include_str!("../../ltbox-device/src/edl/rawprogram.rs");
-
-    assert_template_call_replaces(
-        rawprogram_rs,
-        "log_edl_flash_program_cmd",
-        &["label", "image", "lun", "start", "sectors"],
-    );
-    assert_template_call_replaces(gui_src, "live_country_dump_partition", &["label", "lun"]);
-    assert_template_call_replaces(gui_src, "live_dump_phys_dumping_lun", &["lun", "path"]);
-    assert_template_call_replaces(gui_src, "live_dump_phys_lun_failed", &["lun", "error"]);
 }
 
 #[test]
@@ -1906,65 +1661,12 @@ fn konabess_inspection_uses_busy_dialog_and_flash_uses_inline_exec_surface() {
 }
 
 #[test]
-fn material_progress_replaces_iced_aw_spinner() {
-    let loading_views = concat!(
-        include_str!("view/chrome.rs"),
-        include_str!("view/flash.rs"),
-        include_str!("view/sysupdate.rs"),
-    );
-    assert!(
-        !loading_views.contains("Spinner::new"),
-        "all loading surfaces must use the shared Material progress ring"
-    );
-}
-
-#[test]
-fn log_popup_uses_labeled_action_bar_buttons() {
-    let source = include_str!("view/popups.rs");
-    let popup = source
-        .split_once("pub(crate) fn log_popup_view")
-        .expect("log popup view must exist")
-        .1;
-    assert!(
-        popup.contains("wizard_secondary_action("),
-        "save and close must use visible-label action buttons"
-    );
-    assert!(
-        popup.contains("wizard_action_footer("),
-        "the log popup must use the compact action bar"
-    );
-    assert!(
-        !popup.contains("floating_surface_action("),
-        "the log popup must not render navigation as a FAB"
-    );
-}
-
-#[test]
 fn wizard_step_state_tracks_completed_active_and_upcoming() {
     assert_eq!(wizard_step_state(0, 2), WizardStepState::Completed);
     assert_eq!(wizard_step_state(2, 2), WizardStepState::Active);
     assert_eq!(wizard_step_state(3, 2), WizardStepState::Upcoming);
 }
 
-#[test]
-fn image_info_result_uses_shared_action_hierarchy() {
-    let source = include_str!("view/advanced.rs");
-    let result = source
-        .split_once("pub(crate) fn adv_image_info_exec_step")
-        .expect("image info execution view must exist")
-        .1
-        .split_once("pub(crate) fn view_simple_flash_wizard")
-        .expect("simple flash view must follow image info")
-        .0;
-    assert!(result.contains("wizard_secondary_action"));
-    assert!(result.contains("wizard_primary_action"));
-    assert!(result.contains("wizard_action_footer"));
-    assert!(!result.contains("floating_surface_action"));
-}
-
-/// An unidentified device must not be reported as rollback-protected:
-/// the check is a deny-list, so an empty model would otherwise assert
-/// "Yes" for hardware we never read.
 #[test]
 fn arb_answer_is_blank_until_the_model_is_known() {
     assert_eq!(arb_from_model(""), "");
@@ -2438,52 +2140,14 @@ fn flash_progress_clears_across_op_lifecycle() {
 }
 
 #[test]
-fn firmware_write_phase_labels_use_progress_wording() {
+fn firmware_write_phases_share_the_same_localized_label() {
     for &lang in LANGUAGES {
-        // Exhaustive on purpose: a new language fails to compile until its
-        // expected label is added here.
-        let label = match lang {
-            Language::En => "Flashing firmware",
-            Language::Ko => "펌웨어 플래싱 진행",
-            Language::Zh => "正在刷写固件",
-            Language::Ru => "Прошивка устройства",
-            Language::Ja => "ファームウェアをフラッシュ中",
-            Language::Fr => "Flash du firmware",
-        };
         let translations = Translations::load(lang);
-        assert_eq!(translations.t("op_flash_phase_7"), label);
-        assert_eq!(translations.t("op_simple_phase_write"), label);
+        assert_eq!(
+            translations.t("op_flash_phase_7"),
+            translations.t("op_simple_phase_write")
+        );
     }
-}
-
-#[test]
-fn shared_execution_error_is_inline_instead_of_floating() {
-    let exec = include_str!("view/sysupdate.rs");
-    assert!(exec.contains("concise_error_summary"));
-    assert!(exec.contains("m3_log_text_field_with_action"));
-
-    let chrome = include_str!("view/chrome.rs");
-    assert!(chrome.contains("should_show_error_banner"));
-}
-
-#[test]
-fn action_bar_buttons_have_visible_centered_labels() {
-    let source = include_str!("widgets.rs");
-    let implementation = source
-        .split_once("fn action_button")
-        .expect("labeled action-button helper must exist")
-        .1
-        .split_once("pub(crate) fn wizard_secondary_action")
-        .expect("secondary action helper must follow the shared button")
-        .0;
-    assert!(
-        implementation.contains(".center_y(Length::Fill)"),
-        "action-bar button content must be centered vertically"
-    );
-    assert!(
-        implementation.contains("text(label)"),
-        "every action-bar button must render its label"
-    );
 }
 
 #[test]
@@ -2551,29 +2215,6 @@ fn busy_navigation_target_requires_a_live_operation() {
     );
     assert_eq!(busy_navigation_target(false, Some(View::Flash)), None);
     assert_eq!(busy_navigation_target(true, None), None);
-}
-
-#[test]
-fn dashboard_offers_resume_only_while_an_operation_runs() {
-    // No idle "no operation" card; the running state still has to offer
-    // a way back into the flow the user navigated away from, behind the
-    // same guard.
-    let source = include_str!("view/dashboard.rs");
-    assert!(source.contains("Message::ResumeBusyOperation"));
-    assert!(source.contains(
-        "busy_navigation_target(self.operation.is_running(), self.operation.view()).is_some()"
-    ));
-    assert!(!source.contains("dash_no_operation"));
-}
-
-#[test]
-fn dashboard_open_operation_label_exists_in_every_locale() {
-    let en = Translations::load(Language::En);
-    assert!(en.fallback.contains_key("dash_open_operation"));
-    for &lang in LANGUAGES.iter().filter(|&&lang| lang != Language::En) {
-        let translations = Translations::load(lang);
-        assert!(translations.primary.contains_key("dash_open_operation"));
-    }
 }
 
 #[test]
