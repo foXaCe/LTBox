@@ -34,3 +34,12 @@ physical device replacement across ADB/Fastboot/EDL, bootloader persistence, or
 recovery on real hardware. Cross-mode target identity remains a separate policy
 and testing task. A completed payload progress counter does not prove success:
 the final ACK is still required.
+
+The rawprogram entrypoint cases also cover keep-data, wipe, and verbatim modes:
+invalid later program or patch XML must issue no destructive commands, including
+wipe pre-erase. Valid input preserves erase/program/patch order and device-side
+patch expressions. Patches are parsed before writes and executed from that plan.
+
+Slot-resolution tests (`cargo test -p ltbox-device controller --locked`) inject
+transport replies and a virtual clock, covering active `_b`, ADB failure followed
+by Fastboot success, retry, timeout, and ambiguous Fastboot selection.
