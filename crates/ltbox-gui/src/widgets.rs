@@ -542,6 +542,15 @@ pub(crate) enum WizardLeadingAction {
     Cancel,
 }
 
+/// Widest the inline disabled-Next reason may grow before it wraps, so the
+/// footer buttons keep their size.
+const DISABLED_REASON_MAX_WIDTH: f32 = 320.0;
+
+/// The reason shown beside a disabled Next/Start, if any.
+fn visible_disabled_reason(can_next: bool, hint: Option<&str>) -> Option<&str> {
+    hint.filter(|reason| !can_next && !reason.trim().is_empty())
+}
+
 fn wizard_nav_actions<'a>(
     leading_action: WizardLeadingAction,
     next_label: &str,
@@ -556,6 +565,21 @@ fn wizard_nav_actions<'a>(
         .spacing(ACTION_BUTTON_SPACING)
         .align_y(iced::Alignment::Center)
         .height(Length::Fill);
+    // A tooltip alone only explains a disabled Next to someone who hovers
+    // it; without that, the step just looks broken. Spell the reason out
+    // beside the buttons while it applies.
+    if let Some(reason) = visible_disabled_reason(can_next, disabled_next_hint.as_deref()) {
+        trailing = trailing.push(
+            container(
+                text(reason.to_string())
+                    .size(theme::text_size::BODY_SMALL)
+                    .style(muted_style)
+                    .align_x(iced::alignment::Horizontal::Right)
+                    .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+            )
+            .max_width(DISABLED_REASON_MAX_WIDTH),
+        );
+    }
 
     let (cancel_label, cancel_msg) = match leading_action {
         WizardLeadingAction::None => (
@@ -1162,6 +1186,18 @@ mod tests {
         let radius = (metrics.diameter - metrics.stroke_width) / 2.0;
         let centerline_gap = material_progress_gap_angle(metrics, radius) * radius;
         assert_eq!(centerline_gap, metrics.track_gap + metrics.stroke_width);
+    }
+
+    #[test]
+    fn disabled_reason_shows_only_while_next_is_disabled() {
+        let reason = Some("Connect over ADB");
+        assert_eq!(
+            super::visible_disabled_reason(false, reason),
+            Some("Connect over ADB")
+        );
+        assert_eq!(super::visible_disabled_reason(true, reason), None);
+        assert_eq!(super::visible_disabled_reason(false, None), None);
+        assert_eq!(super::visible_disabled_reason(false, Some("  ")), None);
     }
 
     #[test]
