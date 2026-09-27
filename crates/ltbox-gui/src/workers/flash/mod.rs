@@ -1050,70 +1050,15 @@ fn run_country_change(
             if let Some(phases) = phases {
                 phases.mark_writes_started();
             }
-            if let Err(e) = session.flash_partition(label, &patched_path, 0, lun, log) {
-                ltbox_core::live!(
-                    log,
-                    "[Country] {}",
-                    tr_args!(
-                        "live_country_flash_failed",
-                        label = label,
-                        error = e.to_string()
-                    )
-                );
-                country_progress
-                    .mark_failed(label, tr_args!("country_reason_flash_failed", error = e));
-            } else {
-                live!(
-                    log,
-                    "[Country] {}",
-                    tr_args!("live_country_patched_flashed", label = label)
-                );
-                // Read the partition back: a write the programmer acknowledged
-                // is not yet proof the device holds the patched bytes.
-                let verify_path = work_dir.join(format!("{label}.verify.img"));
-                let verified = session
-                    .dump_partition(label, &verify_path, 0, lun, log)
-                    .map_err(|e| tr_args!("country_reason_verify_failed", error = e))
-                    .and_then(|_| {
-                        files_identical(&patched_path, &verify_path)
-                            .map_err(|e| tr_args!("country_reason_verify_failed", error = e))
-                    });
-                match verified {
-                    Ok(true) => {
-                        live!(
-                            log,
-                            "[Country] {}",
-                            tr_args!("live_country_verified", label = label)
-                        );
-                        country_progress.mark_flashed(label);
-                    }
-                    Ok(false) => {
-                        let reason = ltbox_core::i18n::tr("country_reason_verify_mismatch");
-                        ltbox_core::live!(
-                            log,
-                            "[Country] {}",
-                            tr_args!(
-                                "live_country_partition_status",
-                                label = label,
-                                reason = reason
-                            )
-                        );
-                        country_progress.mark_failed(label, reason);
-                    }
-                    Err(reason) => {
-                        ltbox_core::live!(
-                            log,
-                            "[Country] {}",
-                            tr_args!(
-                                "live_country_partition_status",
-                                label = label,
-                                reason = reason
-                            )
-                        );
-                        country_progress.mark_failed(label, reason);
-                    }
-                }
-            }
+            country_verify::flash_and_verify_country(
+                session,
+                label,
+                lun,
+                &patched_path,
+                &work_dir.join(format!("{label}.verify.img")),
+                &mut country_progress,
+                log,
+            );
         } else if target_code.is_some_and(|target| detected.as_deref() == Some(target)) {
             ltbox_core::live!(
                 log,
@@ -1161,6 +1106,7 @@ fn run_country_change(
 }
 
 mod country;
+mod country_verify;
 mod full;
 pub(crate) mod manual;
 mod simple;
