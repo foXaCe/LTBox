@@ -174,6 +174,8 @@ impl LogHistory {
     /// Hand the session file over to a fresh history, so clearing the
     /// on-screen log does not end the on-disk transcript.
     pub(crate) fn cleared(&mut self) -> Self {
+        // Preserve the latest progress even before its next five-second sample.
+        self.finish_progress();
         let next = Self::default();
         next.archive.borrow_mut().mirror = self.archive.borrow_mut().mirror.take();
         next
@@ -306,6 +308,41 @@ mod tests {
             std::fs::read_to_string(path).unwrap(),
             "ready\n[Country] Phase 1/5\n[Debug] GPT patch\nafter clear\n"
         );
+    }
+
+    #[test]
+    fn clearing_preserves_latest_progress_without_duplicate_samples() {
+        for sampled in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut log = LogHistory::with_initial("ready");
+            let path = log.persist_to(dir.path(), "2026-09-28_00-00-00").unwrap();
+            let now = Instant::now();
+            log.record(progress("flash", "10%"), now);
+            if sampled {
+                log.record(progress("flash", "99%"), now + SAMPLE_INTERVAL);
+            } else {
+                log.record(progress("flash", "99%"), now + Duration::from_secs(1));
+            }
+            let before_clear = log.text();
+            let mut log = log.cleared();
+            assert_eq!(log.text(), "");
+            assert!(log.progress_line().is_none());
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap(),
+                format!("{before_clear}\n")
+            );
+            // A second clear must keep the same file without re-seeding it.
+            log = log.cleared();
+            log.record(
+                Entry::info("write failed".into()),
+                now + Duration::from_secs(6),
+            );
+            drop(log);
+            assert_eq!(
+                std::fs::read_to_string(path).unwrap(),
+                "ready\n99%\nwrite failed\n"
+            );
+        }
     }
 
     #[test]
