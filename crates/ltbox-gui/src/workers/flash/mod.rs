@@ -775,6 +775,27 @@ pub(crate) fn is_field_only_country_partition(label: &str) -> bool {
     matches!(label, "persist" | "proinfo")
 }
 
+/// Whether two files hold the same bytes, compared in chunks so a large
+/// partition image is never read whole.
+fn files_identical(a: &std::path::Path, b: &std::path::Path) -> std::io::Result<bool> {
+    use std::io::Read;
+    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+        return Ok(false);
+    }
+    let (mut a, mut b) = (std::fs::File::open(a)?, std::fs::File::open(b)?);
+    let (mut buf_a, mut buf_b) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
+    loop {
+        let n = a.read(&mut buf_a)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        b.read_exact(&mut buf_b[..n])?;
+        if buf_a[..n] != buf_b[..n] {
+            return Ok(false);
+        }
+    }
+}
+
 /// Rewrite the device's country code over an open EDL session, in the
 /// partitions [`country_partitions_for`] selects. Best-effort per partition
 /// (logs + continues on failure). Shared by `flash_worker`'s post-flash country
@@ -1029,26 +1050,15 @@ fn run_country_change(
             if let Some(phases) = phases {
                 phases.mark_writes_started();
             }
-            if let Err(e) = session.flash_partition(label, &patched_path, 0, lun, log) {
-                ltbox_core::live!(
-                    log,
-                    "[Country] {}",
-                    tr_args!(
-                        "live_country_flash_failed",
-                        label = label,
-                        error = e.to_string()
-                    )
-                );
-                country_progress
-                    .mark_failed(label, tr_args!("country_reason_flash_failed", error = e));
-            } else {
-                live!(
-                    log,
-                    "[Country] {}",
-                    tr_args!("live_country_patched_flashed", label = label)
-                );
-                country_progress.mark_flashed(label);
-            }
+            country_verify::flash_and_verify_country(
+                session,
+                label,
+                lun,
+                &patched_path,
+                &work_dir.join(format!("{label}.verify.img")),
+                &mut country_progress,
+                log,
+            );
         } else if target_code.is_some_and(|target| detected.as_deref() == Some(target)) {
             ltbox_core::live!(
                 log,
@@ -1096,6 +1106,7 @@ fn run_country_change(
 }
 
 mod country;
+mod country_verify;
 mod full;
 pub(crate) mod manual;
 mod simple;
@@ -1106,6 +1117,28 @@ pub(crate) use simple::simple_flash_worker;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn read_back_comparison_catches_any_differing_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b, c, d) = (
+            dir.path().join("a"),
+            dir.path().join("b"),
+            dir.path().join("c"),
+            dir.path().join("d"),
+        );
+        let mut image = vec![0u8; (1 << 16) + 17];
+        image[5] = b'F';
+        std::fs::write(&a, &image).unwrap();
+        std::fs::write(&b, &image).unwrap();
+        *image.last_mut().unwrap() = 1;
+        std::fs::write(&c, &image).unwrap();
+        std::fs::write(&d, &image[..10]).unwrap();
+        assert!(super::files_identical(&a, &b).unwrap());
+        assert!(!super::files_identical(&a, &c).unwrap());
+        assert!(!super::files_identical(&a, &d).unwrap());
+        assert!(super::files_identical(&a, &dir.path().join("missing")).is_err());
+    }
+
     use super::{
         LenovoFirmwareDevicePolicy, ZSTD_FREE_SPACE_RESERVE_BYTES, dump_presence,
         lenovo_firmware_device_policy, require_firmware_loader,
