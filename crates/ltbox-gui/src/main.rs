@@ -487,14 +487,14 @@ fn main() -> iced::Result {
 /// * `adb_client` logs a line per connect, and the dashboard reconnects every
 ///   poll.
 /// * `iced_winit` and `iced_wgpu` dump their window and compositor settings at
-///   `info` on every launch — the window icon alone is one line per RGBA byte,
-///   about 4,000 lines a launch, which buried every LTBox record.
-/// * `iced_futures` warns once per event it drops while a subscription's
+///   `info` on every launch. Linux prints the icon's RGBA buffer (about 4,000
+///   lines for our 32x32 icon); Windows prints an icon handle and macOS NoIcon.
+/// * `iced_futures::subscription::tracker` warns once per event it drops while a subscription's
 ///   channel is full, in bursts of hundreds.
 ///
 /// Each is held back unless RUST_LOG asks for more.
 const DEFAULT_LOG_FILTER: &str =
-    "info,adb_client=warn,iced_winit=warn,iced_wgpu=warn,iced_futures=error";
+    "info,adb_client=warn,iced_winit=warn,iced_wgpu=warn,iced_futures::subscription::tracker=error";
 
 /// Global tracing subscriber writing daily-rotated files under
 /// `%APPDATA%\ltbox\logs\`. Caller must hold the returned `WorkerGuard`
