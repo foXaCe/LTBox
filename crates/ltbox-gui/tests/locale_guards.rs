@@ -51,6 +51,32 @@ fn load_locale(locale: &str) -> BTreeMap<String, String> {
         .unwrap_or_else(|error| panic!("{} must parse: {error}", path.display()))
 }
 
+/// Every locale shipped in `lang/`, English first. The guards below iterate
+/// this rather than a hand-kept list, so a new `lang/*.json` is checked the
+/// moment it lands.
+fn locale_codes() -> Vec<String> {
+    let lang_dir = manifest_dir().join("lang");
+    let mut codes = std::fs::read_dir(&lang_dir)
+        .unwrap_or_else(|error| panic!("failed to read {}: {error}", lang_dir.display()))
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension()? == "json").then(|| path.file_stem()?.to_str().map(str::to_owned))?
+        })
+        .collect::<Vec<_>>();
+    codes.sort_by_key(|code| (code != "en", code.clone()));
+    assert_eq!(
+        codes.first().map(String::as_str),
+        Some("en"),
+        "lang/en.json must exist"
+    );
+    codes
+}
+
+/// Every shipped locale except English.
+fn translated_locale_codes() -> Vec<String> {
+    locale_codes().into_iter().skip(1).collect()
+}
+
 fn template_parameters(template: &str) -> BTreeSet<String> {
     template
         .split('{')
@@ -63,8 +89,8 @@ fn template_parameters(template: &str) -> BTreeSet<String> {
 #[test]
 fn log_template_parameters_match_in_every_locale() {
     let english = load_locale("en");
-    for locale in ["ko", "ja", "zh", "ru", "fr"] {
-        let table = load_locale(locale);
+    for locale in translated_locale_codes() {
+        let table = load_locale(&locale);
         for (key, template) in &english {
             if key.starts_with("live_") || key.starts_with("log_") {
                 assert_eq!(
@@ -487,13 +513,13 @@ fn scan_production_translation_sources() -> TranslationSourceScan {
 #[test]
 fn locale_files_have_identical_key_sets() {
     let en = load_locale("en");
-    let locales = [
-        ("ko", load_locale("ko")),
-        ("zh", load_locale("zh")),
-        ("ru", load_locale("ru")),
-        ("ja", load_locale("ja")),
-        ("fr", load_locale("fr")),
-    ];
+    let locales = translated_locale_codes()
+        .into_iter()
+        .map(|locale| {
+            let table = load_locale(&locale);
+            (locale, table)
+        })
+        .collect::<Vec<_>>();
     let en_keys = en.keys().map(String::as_str).collect::<BTreeSet<_>>();
     let mut differences = Vec::new();
 
@@ -517,7 +543,7 @@ fn locale_files_have_identical_key_sets() {
 
     assert!(
         differences.is_empty(),
-        "locale key sets differ; add or remove the named keys so all six lang/*.json files match:\n- {}",
+        "locale key sets differ; add or remove the named keys so every lang/*.json file matches:\n- {}",
         differences.join("\n- ")
     );
 }
@@ -535,7 +561,7 @@ fn english_locale_keys_match_rust_sources() {
 
     if !orphans.is_empty() {
         failures.push(format!(
-            "crates/ltbox-gui/lang/en.json has keys with no string-literal reference in Rust under crates/**/*.rs: {}\nRemove each orphan from all six lang/*.json files, or restore its Rust call site or key table.",
+            "crates/ltbox-gui/lang/en.json has keys with no string-literal reference in Rust under crates/**/*.rs: {}\nRemove each orphan from every lang/*.json file, or restore its Rust call site or key table.",
             orphans.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
@@ -554,7 +580,7 @@ fn english_locale_keys_match_rust_sources() {
 
     if !missing.is_empty() {
         failures.push(format!(
-            "production t(...), tr(...), or tr_args!(...) calls reference keys absent from crates/ltbox-gui/lang/en.json:\n- {}\nAdd each key to all six lang/*.json files, or correct the named call site.",
+            "production t(...), tr(...), or tr_args!(...) calls reference keys absent from crates/ltbox-gui/lang/en.json:\n- {}\nAdd each key to every lang/*.json file, or correct the named call site.",
             missing.join("\n- ")
         ));
     }
@@ -626,39 +652,11 @@ fn every_localized_character_is_in_the_bundled_subset_for_its_locale() {
     // character present only in Regular renders through a fallback face
     // wherever the UI asks for medium or bold, which is visible as one glyph
     // in the wrong typeface inside an otherwise correct label.
-    let families = [
-        ("en", "KR"),
-        ("ru", "KR"),
-        ("ko", "KR"),
-        ("ja", "JP"),
-        ("zh", "SC"),
-        ("fr", "KR"),
-    ];
-
-    let lang_dir = manifest_dir().join("lang");
-    let on_disk = std::fs::read_dir(&lang_dir)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", lang_dir.display()))
-        .filter_map(|entry| {
-            let path = entry.ok()?.path();
-            (path.extension()? == "json")
-                .then(|| path.file_stem()?.to_str().map(str::to_owned))
-                .flatten()
-        })
-        .collect::<BTreeSet<_>>();
-    let checked = families
-        .iter()
-        .map(|(locale, _)| (*locale).to_owned())
-        .collect::<BTreeSet<_>>();
-    assert_eq!(
-        on_disk, checked,
-        "a lang/*.json file is not covered by this guard; add it above with the family \
-         `theme::font_family_for_language` picks for it"
-    );
-
     let mut failures = Vec::new();
-    for (locale, region) in families {
+    for locale in locale_codes() {
+        let region = locale_family(&locale).trim_start_matches("Noto Sans ");
         let mut used = BTreeSet::new();
-        for value in load_locale(locale).values() {
+        for value in load_locale(&locale).values() {
             used.extend(value.chars());
         }
         used.retain(|ch| !ch.is_whitespace() && !PLATFORM_FALLBACK_CHARS.contains(ch));
@@ -967,15 +965,19 @@ fn load_bundled_locale_fonts() {
     });
 }
 
-fn locale_font(locale: &str, weight: Weight) -> Font {
-    let family = match locale {
+/// Mirrors `theme::font_family_for_language`.
+fn locale_family(locale: &str) -> &'static str {
+    match locale {
         "ja" => "Noto Sans JP",
         "zh" => "Noto Sans SC",
         _ => "Noto Sans KR",
-    };
+    }
+}
+
+fn locale_font(locale: &str, weight: Weight) -> Font {
     Font {
         weight,
-        ..Font::with_name(family)
+        ..Font::with_name(locale_family(locale))
     }
 }
 
@@ -1025,11 +1027,11 @@ fn overflow_message(
 #[test]
 fn bundled_locale_copy_fits_constrained_layout_slots() {
     load_bundled_locale_fonts();
-    let locales = ["en", "ko", "zh", "ru", "ja", "fr"];
+    let locales = locale_codes();
     let mut failures = Vec::new();
 
     for slot in CONSTRAINED_SLOTS {
-        for locale in locales {
+        for locale in locales.iter().map(String::as_str) {
             let table = load_locale(locale);
             match slot.kind {
                 SlotKind::Card(card) => {
@@ -1329,7 +1331,8 @@ fn compact_flash_and_root_step_labels_fit_default_content_width() {
         - COMPACT_ITEM_GAPS;
     for (flow, keys) in [("flash", FLASH_STEP_KEYS), ("root", ROOT_STEP_KEYS)] {
         let total = keys.len();
-        for locale in ["en", "ko", "zh", "ru", "ja", "fr"] {
+        for locale in locale_codes() {
+            let locale = locale.as_str();
             let table = load_locale(locale);
             let mut widest = ("", 0.0_f32, String::new());
             for (index, key) in keys.iter().enumerate() {
@@ -1356,14 +1359,21 @@ fn compact_flash_and_root_step_labels_fit_default_content_width() {
 
 #[test]
 fn timeout_and_capacity_units_follow_the_selected_locale() {
-    for (locale, seconds, gigabytes) in [
+    let expected = [
         ("en", "30 s", "16 GB"),
         ("ko", "30초", "16 GB"),
         ("ja", "30秒", "16 GB"),
         ("zh", "30 秒", "16 GB"),
         ("ru", "30 с", "16 ГБ"),
         ("fr", "30\u{a0}s", "16\u{a0}Go"),
-    ] {
+    ];
+    for locale in locale_codes() {
+        assert!(
+            expected.iter().any(|(listed, ..)| *listed == locale),
+            "lang/{locale}.json has no expected timeout/capacity units; add them above"
+        );
+    }
+    for (locale, seconds, gigabytes) in expected {
         let table = load_locale(locale);
         let timeout = table["err_active_slot_detect_failed"]
             .replace("{timeout}", "30")

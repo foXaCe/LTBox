@@ -113,14 +113,33 @@ fn operation_phase_every_plan_has_unique_nonempty_keys() {
 }
 
 #[test]
+fn every_lang_file_is_a_registered_language() {
+    let lang_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lang");
+    let mut on_disk = std::fs::read_dir(&lang_dir)
+        .expect("read lang dir")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension()? == "json").then(|| path.file_stem()?.to_str().map(str::to_owned))?
+        })
+        .collect::<Vec<_>>();
+    on_disk.sort();
+    let mut registered = LANGUAGES
+        .iter()
+        .map(|language| language.code().to_owned())
+        .collect::<Vec<_>>();
+    registered.sort();
+    assert_eq!(
+        on_disk, registered,
+        "every lang/*.json needs a `Language` variant listed in `LANGUAGES`"
+    );
+    for &language in LANGUAGES {
+        assert_eq!(Language::from_code(language.code()), Some(language));
+    }
+}
+
+#[test]
 fn all_locale_tables_load_through_translations() {
-    for language in [
-        Language::En,
-        Language::Ko,
-        Language::Zh,
-        Language::Ru,
-        Language::Ja,
-    ] {
+    for &language in LANGUAGES {
         assert!(!Translations::load(language).primary.is_empty());
     }
 }
@@ -1205,13 +1224,7 @@ fn refined_phase_labels_exist_in_every_locale() {
         "op_unroot_phase_5",
         "op_unroot_phase_6",
     ];
-    for lang in [
-        Language::En,
-        Language::Ko,
-        Language::Zh,
-        Language::Ru,
-        Language::Ja,
-    ] {
+    for &lang in LANGUAGES {
         let translations = Translations::load(lang);
         for key in keys {
             assert_ne!(translations.t(key), key, "{lang:?} missing {key}");
@@ -1221,13 +1234,7 @@ fn refined_phase_labels_exist_in_every_locale() {
 
 #[test]
 fn every_operation_phase_label_exists_in_every_locale() {
-    for lang in [
-        Language::En,
-        Language::Ko,
-        Language::Zh,
-        Language::Ru,
-        Language::Ja,
-    ] {
+    for &lang in LANGUAGES {
         let translations = Translations::load(lang);
         for kind in OperationPhaseKind::all() {
             for key in kind.keys() {
@@ -2432,14 +2439,17 @@ fn flash_progress_clears_across_op_lifecycle() {
 
 #[test]
 fn firmware_write_phase_labels_use_progress_wording() {
-    let expected = [
-        (Language::En, "Flashing firmware"),
-        (Language::Ko, "펌웨어 플래싱 진행"),
-        (Language::Zh, "正在刷写固件"),
-        (Language::Ru, "Прошивка устройства"),
-        (Language::Ja, "ファームウェアをフラッシュ中"),
-    ];
-    for (lang, label) in expected {
+    for &lang in LANGUAGES {
+        // Exhaustive on purpose: a new language fails to compile until its
+        // expected label is added here.
+        let label = match lang {
+            Language::En => "Flashing firmware",
+            Language::Ko => "펌웨어 플래싱 진행",
+            Language::Zh => "正在刷写固件",
+            Language::Ru => "Прошивка устройства",
+            Language::Ja => "ファームウェアをフラッシュ中",
+            Language::Fr => "Flash du firmware",
+        };
         let translations = Translations::load(lang);
         assert_eq!(translations.t("op_flash_phase_7"), label);
         assert_eq!(translations.t("op_simple_phase_write"), label);
@@ -2560,7 +2570,7 @@ fn dashboard_offers_resume_only_while_an_operation_runs() {
 fn dashboard_open_operation_label_exists_in_every_locale() {
     let en = Translations::load(Language::En);
     assert!(en.fallback.contains_key("dash_open_operation"));
-    for lang in [Language::Ko, Language::Zh, Language::Ru, Language::Ja] {
+    for &lang in LANGUAGES.iter().filter(|&&lang| lang != Language::En) {
         let translations = Translations::load(lang);
         assert!(translations.primary.contains_key("dash_open_operation"));
     }
