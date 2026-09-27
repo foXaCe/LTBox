@@ -2674,3 +2674,9 @@ fn country_patch_progress_surfaces_partition_failures() {
         .expect_err("recorded persist failure must fail workflow");
     assert!(err.contains("persist: no known country code"));
 }
+
+#[test]
+fn default_log_filter_parses() {
+    tracing_subscriber::EnvFilter::try_new(DEFAULT_LOG_FILTER)
+        .expect("DEFAULT_LOG_FILTER must be a valid EnvFilter");
+}
