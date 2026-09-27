@@ -22,6 +22,7 @@ enum Event {
     Erase(u64, usize),
     Payload(Vec<u8>),
     Reset(String),
+    Patch(String, String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,6 +155,13 @@ impl Write for Transport {
                 );
                 response.extend_from_slice(ACK);
                 self.responses = Cursor::new(response);
+            }
+            "patch" => {
+                self.events.lock().unwrap().push(Event::Patch(
+                    command.attribute("start_sector").unwrap().to_owned(),
+                    command.attribute("value").unwrap().to_owned(),
+                ));
+                self.responses = Cursor::new(ACK.to_vec());
             }
             "erase" => {
                 let start = command.attribute("start_sector").unwrap().parse().unwrap();
@@ -701,4 +709,106 @@ fn a_failed_transfer_still_resets_to_edl_when_the_session_drops() {
         events.lock().unwrap().last(),
         Some(&Event::Reset("reset_to_edl".into()))
     );
+}
+
+// Exercise the public rawprogram entrypoints, including wipe pre-erase.
+fn run_rawprogram(
+    fixture: &mut Fixture,
+    mode: &str,
+    programs: &[PathBuf],
+    patches: &[PathBuf],
+) -> super::Result<()> {
+    match mode {
+        "verbatim" => fixture
+            .session
+            .flash_rawprogram_verbatim(programs, patches, &mut Vec::new()),
+        _ => fixture.session.flash_rawprogram_with_wipe(
+            programs,
+            patches,
+            mode == "wipe",
+            &mut Vec::new(),
+        ),
+    }
+}
+
+fn rawprogram_fixture(dir: &std::path::Path) -> PathBuf {
+    std::fs::write(dir.join("image.bin"), vec![0x5a; 512]).unwrap();
+    let path = dir.join("rawprogram.xml");
+    std::fs::write(&path, r#"<data>
+        <program label="boot_a" filename="image.bin" physical_partition_number="4" start_sector="64" num_partition_sectors="1" />
+        <program label="userdata" filename="image.bin" physical_partition_number="4" start_sector="160" num_partition_sectors="1" />
+    </data>"#).unwrap();
+    path
+}
+
+#[test]
+fn rawprogram_rejects_later_invalid_inputs_before_any_destructive_command() {
+    for mode in ["wipe", "keep", "verbatim"] {
+        for (patch, invalid) in [
+            (false, "<data>"),
+            (
+                false,
+                r#"<data><program filename="image.bin" physical_partition_number="4" start_sector="255" num_partition_sectors="2" /></data>"#,
+            ),
+            (true, "<data>"),
+            (
+                true,
+                r#"<data><patch filename="DISK" start_sector="0" /></data>"#,
+            ),
+            (
+                true,
+                r#"<data><patch filename="DISK" physical_partition_number="4" start_sector="0" size_in_bytes="bad" /></data>"#,
+            ),
+        ] {
+            let mut fixture = Fixture::new(512, false, None);
+            let dir = crate::edl::test_support::TempFirmwareDir::new();
+            let first = rawprogram_fixture(dir.path());
+            let second = dir.path().join("later.xml");
+            std::fs::write(&second, invalid).unwrap();
+            let (programs, patches) = if patch {
+                let valid_patch = dir.path().join("first_patch.xml");
+                std::fs::write(&valid_patch, r#"<data><patch filename="DISK" physical_partition_number="4" start_sector="0" size_in_bytes="4" value="1" /></data>"#).unwrap();
+                (vec![first], vec![valid_patch, second])
+            } else {
+                (vec![first, second], vec![])
+            };
+            assert!(
+                run_rawprogram(&mut fixture, mode, &programs, &patches).is_err(),
+                "{mode}: {invalid}"
+            );
+            assert!(
+                fixture.events.lock().unwrap().is_empty(),
+                "{mode}: destructive I/O before validation completed"
+            );
+        }
+    }
+}
+
+#[test]
+fn rawprogram_applies_disk_patches_after_programs_and_preserves_expressions() {
+    for mode in ["wipe", "keep", "verbatim"] {
+        let mut fixture = Fixture::new(512, false, None);
+        let dir = crate::edl::test_support::TempFirmwareDir::new();
+        let program = rawprogram_fixture(dir.path());
+        let patch = dir.path().join("patch.xml");
+        std::fs::write(&patch, r#"<data>
+            <patch filename="image.bin" />
+            <patch filename="DISK" physical_partition_number="4" start_sector="NUM_DISK_SECTORS-1." byte_offset="16" size_in_bytes="4" value="CRC32(0,512)" />
+        </data>"#).unwrap();
+        run_rawprogram(&mut fixture, mode, &[program], &[patch]).unwrap();
+        let events = fixture.events.lock().unwrap();
+        let mut expected = Vec::new();
+        if mode == "wipe" {
+            expected.push(Event::Erase(160, 1));
+        }
+        expected.extend([Event::Program(64, 1), Event::Payload(vec![0x5a; 512])]);
+        if mode != "keep" {
+            expected.extend([Event::Program(160, 1), Event::Payload(vec![0x5a; 512])]);
+        }
+        expected.push(Event::Patch(
+            "NUM_DISK_SECTORS-1.".into(),
+            "CRC32(0,512)".into(),
+        ));
+        assert_eq!(*events, expected, "{mode}");
+    }
 }

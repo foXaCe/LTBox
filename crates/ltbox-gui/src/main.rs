@@ -491,6 +491,20 @@ pub(crate) fn log_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::env::temp_dir().join("ltbox-logs"))
 }
 
+/// Default `RUST_LOG` directives for the log file.
+///
+/// * `adb_client` logs a line per connect, and the dashboard reconnects every
+///   poll.
+/// * `iced_winit` and `iced_wgpu` dump their window and compositor settings at
+///   `info` on every launch. Linux prints the icon's RGBA buffer (about 4,000
+///   lines for our 32x32 icon); Windows prints an icon handle and macOS NoIcon.
+/// * `iced_futures::subscription::tracker` warns once per event it drops while a subscription's
+///   channel is full, in bursts of hundreds.
+///
+/// Each is held back unless RUST_LOG asks for more.
+const DEFAULT_LOG_FILTER: &str =
+    "info,adb_client=warn,iced_winit=warn,iced_wgpu=warn,iced_futures::subscription::tracker=error";
+
 /// Global tracing subscriber writing daily-rotated files under
 /// `%APPDATA%\ltbox\logs\`. Caller must hold the returned `WorkerGuard`
 /// for the process lifetime — dropping it flushes queued entries.
@@ -509,10 +523,8 @@ fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "ltbox.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    // `adb_client` logs a line per connect, and the dashboard reconnects
-    // every poll, so it is held at `warn` unless RUST_LOG asks for more.
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,adb_client=warn"));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
 
     // `init` rather than `set_global_default`: it also installs the
     // `log` -> `tracing` bridge, so records from dependencies that use

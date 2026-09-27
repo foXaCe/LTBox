@@ -3,6 +3,40 @@
 
 use super::*;
 
+/// Parsed before any destructive command; device-side expressions stay verbatim.
+struct PatchNodePlan {
+    byte_off: u64,
+    slot: u8,
+    lun: u8,
+    size: u64,
+    start_sector: String,
+    value: String,
+}
+
+fn plan_patch_xml(xml_path: &Path) -> Result<Vec<PatchNodePlan>> {
+    let xml_content = ltbox_core::xml::read(xml_path)?;
+    let doc = ltbox_core::xml::parse(&xml_content).map_err(|e| {
+        EdlError::Session(format!("XML parse error in {}: {e}", xml_path.display()))
+    })?;
+    let mut plans = Vec::new();
+    for node in doc.descendants().filter(|node| {
+        node.tag_name().name().eq_ignore_ascii_case("patch")
+            && node.attribute("filename") == Some("DISK")
+    }) {
+        let ctx = "<patch>";
+        require_destructive_coords(&node, ctx)?;
+        plans.push(PatchNodePlan {
+            byte_off: parse_xml_attr(&node, "byte_offset", 0, ctx)?,
+            lun: parse_xml_attr(&node, "physical_partition_number", 0, ctx)?,
+            slot: parse_xml_attr(&node, "slot", 0, ctx)?,
+            size: parse_xml_attr(&node, "size_in_bytes", 0, ctx)?,
+            start_sector: node.attribute("start_sector").unwrap().to_owned(),
+            value: node.attribute("value").unwrap_or("").to_owned(),
+        });
+    }
+    Ok(plans)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct WipeErasePlanEntry {
     pub(super) label: String,
@@ -361,6 +395,10 @@ impl EdlSession {
         wipe: bool,
         log: &mut Vec<String>,
     ) -> Result<()> {
+        let patch_plans = patch_xmls
+            .iter()
+            .map(|path| plan_patch_xml(path))
+            .collect::<Result<Vec<_>>>()?;
         Self::preflight_rawprogram_super_images(program_xmls)?;
         self.preflight_rawprogram_nodes(program_xmls, !wipe, wipe, log)?;
         register_flash_bytes(self.rawprogram_transfer_bytes(program_xmls, wipe)?);
@@ -380,7 +418,7 @@ impl EdlSession {
             );
             self.flash_one_rawprogram(xml_path, wipe, log)?;
         }
-        for xml_path in patch_xmls {
+        for (xml_path, plans) in patch_xmls.iter().zip(&patch_plans) {
             // Show file name only — the full disk path was noisy and added
             // nothing the user couldn't already see in the firmware folder.
             let display_name = xml_path
@@ -392,7 +430,7 @@ impl EdlSession {
                 "[EDL] {}",
                 ltbox_core::tr_args!("log_edl_patch_xml_cmd", path = display_name)
             );
-            self.apply_patch_xml(xml_path, log)?;
+            self.apply_patch_plans(plans, log)?;
         }
         Ok(())
     }
@@ -413,6 +451,10 @@ impl EdlSession {
         patch_xmls: &[PathBuf],
         log: &mut Vec<String>,
     ) -> Result<()> {
+        let patch_plans = patch_xmls
+            .iter()
+            .map(|path| plan_patch_xml(path))
+            .collect::<Result<Vec<_>>>()?;
         Self::preflight_rawprogram_super_images(program_xmls)?;
         self.preflight_rawprogram_nodes(program_xmls, false, false, log)?;
         register_flash_bytes(self.rawprogram_transfer_bytes(program_xmls, true)?);
@@ -428,7 +470,7 @@ impl EdlSession {
             // separate pre-erase pass is intentionally not run.
             self.flash_one_rawprogram(xml_path, true, log)?;
         }
-        for xml_path in patch_xmls {
+        for (xml_path, plans) in patch_xmls.iter().zip(&patch_plans) {
             let display_name = xml_path
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
@@ -438,7 +480,7 @@ impl EdlSession {
                 "[EDL] {}",
                 ltbox_core::tr_args!("log_edl_patch_xml_cmd", path = display_name)
             );
-            self.apply_patch_xml(xml_path, log)?;
+            self.apply_patch_plans(plans, log)?;
         }
         Ok(())
     }
@@ -774,30 +816,16 @@ impl EdlSession {
         Ok(())
     }
 
-    fn apply_patch_xml(&mut self, xml_path: &Path, log: &mut Vec<String>) -> Result<()> {
-        let xml_content = ltbox_core::xml::read(xml_path)?;
-        let doc = ltbox_core::xml::parse(&xml_content).map_err(|e| {
-            EdlError::Session(format!("XML parse error in {}: {e}", xml_path.display()))
-        })?;
-
-        for node in doc.descendants() {
-            if !node.tag_name().name().eq_ignore_ascii_case("patch") {
-                continue;
-            }
-            // Non-DISK patches target files, not storage.
-            let filename = node.attribute("filename").unwrap_or("");
-            if filename != "DISK" {
-                continue;
-            }
-            let ctx = "<patch>";
-            require_destructive_coords(&node, ctx)?;
-            let byte_off: u64 = parse_xml_attr(&node, "byte_offset", 0u64, ctx)?;
-            let lun: u8 = parse_xml_attr(&node, "physical_partition_number", 0u8, ctx)?;
-            let slot: u8 = parse_xml_attr(&node, "slot", 0u8, ctx)?;
-            let size: u64 = parse_xml_attr(&node, "size_in_bytes", 0u64, ctx)?;
-            let start_sector = node.attribute("start_sector").unwrap_or("0");
-            let value = node.attribute("value").unwrap_or("");
-
+    fn apply_patch_plans(&mut self, plans: &[PatchNodePlan], log: &mut Vec<String>) -> Result<()> {
+        for PatchNodePlan {
+            byte_off,
+            slot,
+            lun,
+            size,
+            start_sector,
+            value,
+        } in plans
+        {
             ltbox_core::live_debug!(
                 log,
                 "[EDL] {}",
@@ -812,10 +840,10 @@ impl EdlSession {
             );
             qdl::firehose_patch(
                 &mut self.dev,
-                byte_off,
-                slot,
-                lun,
-                size,
+                *byte_off,
+                *slot,
+                *lun,
+                *size,
                 start_sector,
                 value,
             )

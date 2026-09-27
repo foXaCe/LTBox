@@ -32,7 +32,7 @@ struct FixturePaths {
 }
 
 impl FixturePaths {
-    fn from_env() -> Option<Self> {
+    fn from_env() -> Self {
         let names = [
             "LTBOX_TB320FC_BOOT",
             "LTBOX_TB320FC_VBMETA",
@@ -44,16 +44,16 @@ impl FixturePaths {
             .filter(|name| env::var_os(name).is_none())
             .copied()
             .collect::<Vec<_>>();
-        if !missing.is_empty() {
-            println!("skipping TB320FC boot fixtures; unset: {missing:?}");
-            return None;
-        }
-        Some(Self {
+        assert!(
+            missing.is_empty(),
+            "explicit fixture run requires: {missing:?}"
+        );
+        Self {
             stock: env_path(names[0]),
             vbmeta: env_path(names[1]),
             ksu_reference: env_path(names[2]),
             magisk_reference: env_path(names[3]),
-        })
+        }
     }
 }
 
@@ -375,9 +375,7 @@ fn assert_avb_pair(boot: &Path, vbmeta: &Path) {
 #[test]
 #[ignore = "requires locally supplied TB320FC stock and app-patched images"]
 fn real_tb320fc_boot_matches_magisk_and_ksu_apps() {
-    let Some(paths) = FixturePaths::from_env() else {
-        return;
-    };
+    let paths = FixturePaths::from_env();
 
     let stock_size = std::fs::metadata(&paths.stock).unwrap().len();
     assert_eq!(stock_size, 96 * 1024 * 1024);

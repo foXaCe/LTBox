@@ -523,3 +523,36 @@ pub(crate) fn advanced_file_worker(
     );
     Ok(log)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn conversion_failure_keeps_the_failed_phase_and_creates_no_xml() {
+        for corrupt_input in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let input = dir.path().join("input");
+            let output = dir.path().join("output");
+            std::fs::create_dir(&input).unwrap();
+            if corrupt_input {
+                std::fs::write(input.join("rawprogram.x"), b"truncated").unwrap();
+            }
+            let phases =
+                PhaseReporter::from_labels(vec!["Inspect".into(), "Decrypt".into(), "Done".into()]);
+            let result = advanced_file_worker(
+                input.to_string_lossy().into_owned(),
+                AdvAction::ConvertXml,
+                None,
+                None,
+                None,
+                output.clone(),
+                "Convert XML".into(),
+                phases.clone(),
+            );
+            assert!(result.is_err());
+            assert_eq!(phases.current_step(), usize::from(corrupt_input));
+            assert_eq!(std::fs::read_dir(output).unwrap().count(), 0);
+        }
+    }
+}
