@@ -19,6 +19,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish_arch_repository:
+        description: Also replace the hosted Arch Linux (pacman) repository
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: publish-packages
@@ -449,3 +454,235 @@ jobs:
             miner7222/homebrew-tap \
             rendered/homebrew/Casks/ltbox.rb \
             Casks/ltbox.rb
+
+  package-arch:
+    name: Package Arch Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Packaging inputs come from the ref being run, not the release tag:
+          # a dry run against an older tag still needs this branch's templates.
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Download release binaries and checksum sidecars
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p arch-stage/src
+          for asset in \
+            "LTBox-linux_x86_64-${TAG}.tar.gz" \
+            "LTBox-linux_arm64-${TAG}.tar.gz"
+          do
+            gh release download "${TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --dir arch-stage/src \
+              --pattern "${asset}" \
+              --pattern "${asset}.sha256"
+            (cd arch-stage/src && sha256sum --check "${asset}.sha256")
+          done
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${TAG}/misc/udev/51-ltbox-qcom.rules" \
+            -o arch-stage/src/51-ltbox-qcom.rules
+
+      - name: Render PKGBUILD with published checksums
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          x86_sha="$(sha256sum arch-stage/src/LTBox-linux_x86_64-${TAG}.tar.gz | awk '{print $1}')"
+          arm_sha="$(sha256sum arch-stage/src/LTBox-linux_arm64-${TAG}.tar.gz | awk '{print $1}')"
+          udev_sha="$(sha256sum arch-stage/src/51-ltbox-qcom.rules | awk '{print $1}')"
+          sed \
+            -e "s/@@VERSION@@/${version}/g" \
+            -e "s/@@SHA256_X86_64@@/${x86_sha}/g" \
+            -e "s/@@SHA256_AARCH64@@/${arm_sha}/g" \
+            -e "s/@@SHA256_UDEV@@/${udev_sha}/g" \
+            packaging/arch/PKGBUILD.tmpl > arch-stage/src/PKGBUILD
+          cp packaging/arch/ltbox.install arch-stage/src/ltbox.install
+
+      - name: Build x86_64 package
+        id: build_x86_64
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${PWD}/arch-stage:/work:rw" \
+            -w /work/src \
+            archlinux:latest \
+            makepkg --asroot --noconfirm
+          mkdir -p arch-stage/dist/x86_64
+          cp arch-stage/src/ltbox-*-1-x86_64.pkg.tar.zst arch-stage/dist/x86_64/
+
+      - name: Build aarch64 package
+        id: build_aarch64
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${PWD}/arch-stage:/work:rw" \
+            -w /work/src \
+            archlinux:latest \
+            bash -ceu 'CARCH=aarch64 makepkg --asroot --noconfirm'
+          mkdir -p arch-stage/dist/aarch64
+          cp arch-stage/src/ltbox-*-1-aarch64.pkg.tar.zst arch-stage/dist/aarch64/
+
+      - name: Upload Arch package artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-packages
+          path: arch-stage/dist/**/*.pkg.tar.zst
+          if-no-files-found: error
+
+      - name: Attach Arch packages to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          gh release upload "${TAG}" arch-stage/dist/*/*.pkg.tar.zst \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+
+  publish-arch-repository:
+    name: Build and publish Arch Linux repository
+    needs: package-arch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check repository publishing prerequisites
+        id: repository
+        env:
+          REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+          REPO_GPG_PASSPHRASE: ${{ secrets.REPO_GPG_PASSPHRASE }}
+          REPO_GITHUB_TOKEN: ${{ secrets.REPO_ARCH_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [[ -n "${REPO_GPG_PRIVATE_KEY}" ]] || missing+=(REPO_GPG_PRIVATE_KEY)
+          [[ -n "${REPO_GPG_PASSPHRASE}" ]] || missing+=(REPO_GPG_PASSPHRASE)
+          [[ -n "${REPO_GITHUB_TOKEN}" ]] || missing+=(REPO_ARCH_GITHUB_TOKEN)
+          if (( ${#missing[@]} > 0 )); then
+            echo "::notice::Skipping miner7222/ltbox-arch-repo: Actions secret(s) ${missing[*]} are not configured."
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if ! repository_json="$(GH_TOKEN="${REPO_GITHUB_TOKEN}" gh api repos/miner7222/ltbox-arch-repo 2>/dev/null)"; then
+            echo "::error::Cannot publish miner7222/ltbox-arch-repo: repository is unreachable or REPO_ARCH_GITHUB_TOKEN cannot access it."
+            exit 1
+          fi
+          echo "enabled=true" >> "${GITHUB_OUTPUT}"
+          echo "default_branch=$(jq -r '.default_branch // "main"' <<<"${repository_json}")" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/checkout@v7
+        if: steps.repository.outputs.enabled == 'true'
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - name: Download signed Arch packages
+        if: steps.repository.outputs.enabled == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          pattern: arch-packages-*
+          path: arch-packages
+          merge-multiple: true
+
+      - name: Build signed Arch repository
+        if: steps.repository.outputs.enabled == 'true'
+        env:
+          REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+          REPO_GPG_PASSPHRASE: ${{ secrets.REPO_GPG_PASSPHRASE }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          private_key="${RUNNER_TEMP}/ltbox-arch-repository-private.asc"
+          cleanup() { rm -f "${private_key}"; }
+          trap cleanup EXIT
+          printf '%s\n' "${REPO_GPG_PRIVATE_KEY}" > "${private_key}"
+          chmod 0600 "${private_key}"
+          docker run --rm \
+            -v "${PWD}:/work:ro" \
+            -v "${PWD}/arch-packages:/packages:ro" \
+            -v "${PWD}/arch-repository-site:/output:rw" \
+            -v "${private_key}:/key.asc:ro" \
+            -w /work \
+            -e REPO_GPG_PASSPHRASE="${REPO_GPG_PASSPHRASE}" \
+            -e TAG="${TAG}" \
+            archlinux:latest \
+            bash -ceu '
+              pacman -Sy --noconfirm --needed pacman-contrib >/dev/null 2>&1
+              bash /work/packaging/arch/build_repository.sh \
+                --tag "${TAG}" \
+                --packages-dir /packages \
+                --output-dir /output \
+                --private-key /key.asc
+            '
+
+      - name: Validate repository with stock tools
+        if: steps.repository.outputs.enabled == 'true'
+        run: bash packaging/arch/validate_repository.sh arch-repository-site
+
+      - name: Upload repository dry-run artifact
+        if: steps.repository.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-repository-${{ github.event.release.tag_name || inputs.tag }}
+          path: arch-repository-site/
+          include-hidden-files: true
+          if-no-files-found: error
+
+      - name: Report repository dry run
+        if: >-
+          steps.repository.outputs.enabled == 'true' &&
+          github.event_name != 'release' &&
+          inputs.publish_arch_repository != true
+        run: echo "::notice::Signed Arch Linux repository dry run passed; no external repository was changed."
+
+      - name: Replace hosted repository with one orphan commit
+        if: >-
+          steps.repository.outputs.enabled == 'true' &&
+          (github.event_name == 'release' || inputs.publish_arch_repository)
+        env:
+          REPO_GITHUB_TOKEN: ${{ secrets.REPO_ARCH_GITHUB_TOKEN }}
+          DEFAULT_BRANCH: ${{ steps.repository.outputs.default_branch }}
+          VERSION: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          publish_repository() {
+            local repository="miner7222/ltbox-arch-repo"
+            local worktree="external-ltbox-arch-repo"
+            rm -rf "${worktree}"
+            if ! GH_TOKEN="${REPO_GITHUB_TOKEN}" gh repo clone "${repository}" "${worktree}" -- --depth 1; then
+              echo "::error::Cannot publish ${repository}: clone failed with REPO_ARCH_GITHUB_TOKEN."
+              return 1
+            fi
+            previous_head="$(git -C "${worktree}" rev-parse HEAD)"
+            if ! git -C "${worktree}" switch --orphan repository-current; then
+              echo "::error::Cannot publish ${repository}: could not create the replacement orphan commit."
+              return 1
+            fi
+            if ! cp -a arch-repository-site/. "${worktree}/"; then
+              echo "::error::Cannot publish ${repository}: could not stage the rendered repository."
+              return 1
+            fi
+            git -C "${worktree}" config user.name "github-actions[bot]"
+            git -C "${worktree}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            if ! git -C "${worktree}" add --all; then
+              echo "::error::Cannot publish ${repository}: could not stage the rendered repository."
+              return 1
+            fi
+            if ! git -C "${worktree}" commit -m "chore: Publish LTBox Arch repository ${VERSION}"; then
+              echo "::notice::${repository} already matches ${VERSION}."
+              return 0
+            fi
+            GH_TOKEN="${REPO_GITHUB_TOKEN}" gh auth setup-git > /dev/null
+            if ! GH_TOKEN="${REPO_GITHUB_TOKEN}" git -C "${worktree}" push --force-with-lease="refs/heads/${DEFAULT_BRANCH}:${previous_head}" origin "HEAD:${DEFAULT_BRANCH}"; then
+              echo "::error::Cannot publish ${repository}: REPO_ARCH_GITHUB_TOKEN lacks force-push access or the branch rejects force pushes."
+              return 1
+            fi
+            echo "::notice::Published ${VERSION} Arch Linux repository to ${repository}@${DEFAULT_BRANCH}."
+          }
+          publish_repository

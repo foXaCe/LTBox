@@ -99,6 +99,43 @@ picked up with:
 sudo dnf upgrade ltbox
 ```
 
+## Arch Linux (pacman)
+
+LTBox is published as a signed Arch package (`.pkg.tar.zst`) attached to each GitHub release, and optionally as a
+signed pacman repository hosted on GitHub Pages.
+
+### From a release (one-off install)
+
+Download the package for your architecture from the
+<https://github.com/miner7222/LTBox/releases> page and install it with pacman:
+
+```sh
+curl -LO https://github.com/miner7222/LTBox/releases/download/vX.Y.Z/ltbox-X.Y.Z-1-x86_64.pkg.tar.zst
+sudo pacman -U ltbox-X.Y.Z-1-x86_64.pkg.tar.zst
+```
+
+### Repository (pacman)
+
+When the repository is published, import the LTBox repository key and add to `/etc/pacman.conf`:
+
+```ini
+[ltbox]
+SigLevel = Required DatabaseOptional
+Server = https://miner7222.github.io/ltbox-arch-repo/$arch
+```
+
+Then:
+
+```sh
+pacman-key --add ltbox-repo.asc
+pacman-key --lsign-key <fingerprint>
+sudo pacman -Sy ltbox
+```
+
+The public key is available at `https://miner7222.github.io/ltbox-arch-repo/ltbox-repo.asc`.
+
+Both `x86_64` and `aarch64` are supported.
+
 ## Repository signing key setup
 
 Generate the dedicated key once on a trusted maintainer machine with GnuPG. The
